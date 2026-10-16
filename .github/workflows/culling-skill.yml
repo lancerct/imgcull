@@ -1,0 +1,18 @@
+name: Culling skill checks
+on:
+  push:
+  pull_request:
+jobs:
+  checkpoint:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.10', '3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Verify private review checkpoints
+        run: python -m unittest discover -s .agents/skills/lightroom-photo-culling/scripts -p test_review_ledger.py -v

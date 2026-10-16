@@ -234,3 +234,21 @@ cargo fmt && cargo clippy -- -D warnings && cargo test
 ## 📄 License
 
 Distributed under the **MIT OR Apache-2.0** license. See [`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE`](LICENSE-APACHE) for details.
+
+## Personal Lightroom culling skill (fork addition)
+
+The [lightroom-photo-culling skill](.agents/skills/lightroom-photo-culling/SKILL.md)
+adds group-aware review rules for travel, portraits, birds, museum objects and
+protected composite sequences. Its Python 3.10+ checkpoint helper validates and
+saves decisions outside chat context. It exports a **review plan, not applied XMP**.
+It does not change model providers or certify local-model selection quality.
+
+The stock CLI scoring/XMP behavior above remains unchanged. Read the skill's
+[integration notes](.agents/skills/lightroom-photo-culling/references/integration.md)
+before using it on an existing Lightroom library, particularly with RAW/JPEG pairs.
+
+Run the standalone checkpoint tests without API credentials or photographs:
+
+```sh
+python -m unittest discover -s .agents/skills/lightroom-photo-culling/scripts -p test_review_ledger.py -v
+```
