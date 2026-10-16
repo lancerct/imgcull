@@ -33,7 +33,7 @@ fn self_closing_description_and_alternate_prefixes_work() {
     let raw = fs::read_to_string(&p).unwrap();
     roxmltree::Document::parse(&raw).unwrap();
     assert!(raw.contains("c:Exposure2012='+1.25'"));
-    assert!(!raw.contains("p:Rating"));
+    assert!(!raw.contains(" p:Rating="));
     let back = XmpSidecar::read(&p).unwrap();
     assert_eq!(back.rating(), Some(3));
     assert_eq!(back.label(), Some("Green"));

@@ -30,6 +30,7 @@ jobs:
       - name: Build with locked dependencies
         run: cargo build --locked
       - name: Regression tests
-        run: cargo test --locked
+        run: cargo test --locked --no-fail-fast
       - name: Lint
+        if: always()
         run: cargo clippy --locked --all-targets -- -D warnings
