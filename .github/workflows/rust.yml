@@ -24,18 +24,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - name: Format working copy and emit source for review
-        shell: python
-        run: |
-          import subprocess, pathlib, json
-          subprocess.run(["cargo", "fmt"], check=True)
-          for p in subprocess.check_output(["git", "diff", "--name-only"], text=True).splitlines():
-              if p.endswith(".rs"):
-                  print("FORMATTED_SOURCE " + json.dumps({"path":p,"content":pathlib.Path(p).read_text(encoding="utf-8")}, ensure_ascii=True))
+      - name: Check source formatting
+        run: cargo fmt --check
       - name: Build with locked dependencies
         run: cargo build --locked
       - name: Regression tests
         run: cargo test --locked --no-fail-fast
       - name: Lint
-        if: always()
+        if: ${{ !cancelled() }}
         run: cargo clippy --locked --all-targets -- -D warnings
