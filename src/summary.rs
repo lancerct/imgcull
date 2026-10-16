@@ -91,7 +91,9 @@ impl RunSummary {
         };
 
         eprintln!("\nimgcull: {processed}/{total} images processed");
-        if failed > 0 { eprintln!("  {failed} failed; run exits with an error"); }
+        if failed > 0 {
+            eprintln!("  {failed} failed; run exits with an error");
+        }
         if scored > 0
             && let Some((name, score)) = stats.best.as_ref()
         {

@@ -169,7 +169,7 @@ fn same_stem_pair_and_duplicate_inputs_have_one_identity() {
     fs::write(&raw, b"raw").unwrap();
     let found = discovery::deduplicate_images(vec![jpg.clone(), raw.clone(), jpg.clone()]).unwrap();
     assert_eq!(found, vec![raw.canonicalize().unwrap()]);
-    assert_eq!(discovery::review_source(&found[0]), jpg);
+    assert_eq!(discovery::review_source(&found[0]), jpg.canonicalize().unwrap());
 }
 #[test]
 fn ambiguous_raw_collision_is_not_guessed() {
@@ -213,5 +213,14 @@ fn imgcull_lock_prevents_second_writer() {
     let mut s = XmpSidecar::read(&p).unwrap();
     s.set_rating(4);
     assert!(s.write(&p).is_err());
+}
+
+#[test]
+fn recovery_cannot_target_photo_pixels() {
+    let dir = TempDir::new().unwrap();
+    let photo = dir.path().join("photo.NEF");
+    fs::write(&photo, b"original photo").unwrap();
+    assert!(metadata_transaction::write(&photo, Some(b"original photo"), b"replacement").is_err());
+    assert_eq!(fs::read(&photo).unwrap(), b"original photo");
 }
 

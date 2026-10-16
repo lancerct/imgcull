@@ -324,17 +324,15 @@ impl XmpSidecar {
 pub fn backup_sidecar(path: &Path) -> Result<()> {
     use std::io::Write;
     let backup = path.with_extension("xmp.bak");
-    let mut output = match fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&backup)
-    {
-        Ok(file) => file,
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
-        Err(e) => return Err(e.into()),
-    };
-    output.write_all(&fs::read(path)?)?;
-    output.sync_all()?;
-    Ok(())
+    let bytes = fs::read(path)?;
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let mut output = tempfile::NamedTempFile::new_in(parent)?;
+    output.write_all(&bytes)?;
+    output.as_file().sync_all()?;
+    match output.persist_noclobber(backup) {
+        Ok(_) => Ok(()),
+        Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e.error.into()),
+    }
 }
 

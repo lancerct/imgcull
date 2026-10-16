@@ -46,8 +46,8 @@ pub struct PipelineOptions {
 /// 3. Preprocesses the image (decode, resize, base64-encode) — skipped
 ///    entirely when no LLM stage needs to run.
 /// 4. Optionally calls the description provider and stores the result.
-/// 5. Optionally calls the scoring provider, clamps scores, and stores the result.
-/// 6. Backs up the existing XMP sidecar if `options.backup` is set.
+/// 5. Optionally calls the scoring provider, validates scores, and stores the result.
+/// 6. Records a mandatory recovery transaction; optionally keeps a legacy backup.
 /// 7. Writes the updated XMP sidecar to disk.
 ///
 /// A progress bar is displayed during processing and a [`RunSummary`] is
@@ -55,9 +55,8 @@ pub struct PipelineOptions {
 ///
 /// # Errors
 ///
-/// Returns an error if any Tokio task panics (i.e. if joining a task fails).
-/// Per-image errors are logged via `warn!` / `error!` and counted in the
-/// summary rather than propagating.
+/// Returns an error for invalid configuration, ambiguous input groups, task panics,
+/// or any photo analysis/save failure. Other photos may still complete successfully.
 pub async fn run_pipeline(
     images: Vec<PathBuf>,
     config: &Config,
@@ -65,7 +64,10 @@ pub async fn run_pipeline(
     clients: Arc<LlmClients>,
     options: PipelineOptions,
 ) -> Result<()> {
-    ensure!((1..=32).contains(&config.default_settings.concurrency), "concurrency must be 1..=32");
+    ensure!(
+        (1..=32).contains(&config.default_settings.concurrency),
+        "concurrency must be 1..=32"
+    );
     let images = crate::discovery::deduplicate_images(images)?;
     let failures = Arc::new(AtomicUsize::new(0));
     let summary = Arc::new(RunSummary::new());
@@ -276,7 +278,7 @@ pub async fn run_pipeline(
 
                 if let Err(e) = sidecar.write(&sidecar_path) {
                     error!(
-                        "Failed to write sidecar for {filename}: {e} — description and scores lost, re-run with --force to retry"
+                        "Failed to save sidecar for {filename}: {e}; inspect the recovery transaction before retrying"
                     );
                     failures.fetch_add(1, Ordering::Relaxed);
                     pb.inc(1);
@@ -294,8 +296,14 @@ pub async fn run_pipeline(
     }
 
     pb.finish_and_clear();
-    summary.failed.store(failures.load(Ordering::Relaxed), Ordering::Relaxed);
+    summary
+        .failed
+        .store(failures.load(Ordering::Relaxed), Ordering::Relaxed);
     summary.display();
-    ensure!(failures.load(Ordering::Relaxed) == 0, "{} photo(s) failed; inspect errors and retry", failures.load(Ordering::Relaxed));
+    ensure!(
+        failures.load(Ordering::Relaxed) == 0,
+        "{} photo(s) failed; inspect errors and retry",
+        failures.load(Ordering::Relaxed)
+    );
     Ok(())
 }
