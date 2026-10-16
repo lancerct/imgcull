@@ -89,6 +89,15 @@ fn failed_validation_does_not_create_file() {
     assert!(s.write(&p).is_err());
     assert!(!p.exists());
 }
+
+#[test]
+fn unmodified_read_write_changes_no_bytes_and_creates_no_transaction() {
+    let (_dir, p) = seed("<r:Description p:Rating='4'/>");
+    let before = fs::read(&p).unwrap();
+    XmpSidecar::read(&p).unwrap().write(&p).unwrap();
+    assert_eq!(fs::read(&p).unwrap(), before);
+    assert!(!p.parent().unwrap().join(".imgcull/transactions").exists());
+}
 #[test]
 fn stale_write_preserves_lightroom_changes() {
     let (_d, p) = seed("<r:Description c:Exposure2012='1'/>");
@@ -203,11 +212,13 @@ fn incomplete_out_of_range_and_nonfinite_scores_abstain() {
 #[test]
 fn imgcull_lock_prevents_second_writer() {
     let (_d, p) = seed("<r:Description/>");
+    let locks = p.parent().unwrap().join(".imgcull/locks");
+    fs::create_dir_all(&locks).unwrap();
     let lock = fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(false)
-        .open(p.with_extension("xmp.imgcull.lock"))
+        .open(locks.join("photo.xmp.lock"))
         .unwrap();
     lock.lock().unwrap();
     let mut s = XmpSidecar::read(&p).unwrap();

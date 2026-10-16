@@ -259,6 +259,9 @@ impl XmpSidecar {
             ensure!(self.has_scores(), "refusing incomplete or invalid scores");
         }
         let base = self.raw_content.as_deref().unwrap_or(EMPTY);
+        if self.dirty.is_empty() {
+            return Ok(base.to_string());
+        }
         let doc = Document::parse(base)?;
         let node = description_node(&doc)?;
         let mut edits = Vec::new();

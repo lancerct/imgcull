@@ -44,7 +44,10 @@ fn locked_target(path: &Path) -> Result<(PathBuf, File)> {
         .canonicalize()?;
     let target = parent.join(path.file_name().context("missing filename")?);
     reject_link(&target)?;
-    let lock_path = target.with_extension("xmp.imgcull.lock");
+    let locks = state_directory(&target)?.join("locks");
+    reject_link(&locks)?;
+    fs::create_dir_all(&locks)?;
+    let lock_path = locks.join(target.file_name().context("missing filename")?).with_extension("xmp.lock");
     reject_link(&lock_path)?;
     let lock = OpenOptions::new()
         .read(true)
@@ -76,11 +79,14 @@ fn snapshot(path: &Path, content: &[u8]) -> Result<()> {
     f.sync_all()?;
     Ok(())
 }
-fn transaction_root(target: &Path) -> Result<PathBuf> {
+fn state_directory(target: &Path) -> Result<PathBuf> {
     let root = target.parent().context("missing parent")?.join(".imgcull");
     reject_link(&root)?;
     fs::create_dir_all(&root)?;
-    let root = root.join("transactions");
+    Ok(root)
+}
+fn transaction_root(target: &Path) -> Result<PathBuf> {
+    let root = state_directory(target)?.join("transactions");
     reject_link(&root)?;
     fs::create_dir_all(&root)?;
     Ok(root)
