@@ -52,7 +52,10 @@ impl LlmClients {
         D: DescriptionProvider + ScoringProvider + 'static,
         S: DescriptionProvider + ScoringProvider + 'static,
     {
-        Self { description_provider: Box::new(description), scoring_provider: Box::new(scoring) }
+        Self {
+            description_provider: Box::new(description),
+            scoring_provider: Box::new(scoring),
+        }
     }
     /// Construct `LlmClients` from the project [`Config`] and [`Prompts`].
     ///

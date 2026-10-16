@@ -1,9 +1,13 @@
 use std::path::Path;
 fn read_xml(path: &Path) -> String {
-    std::fs::read_to_string(path).unwrap()
+    std::fs::read_to_string(path)
+        .unwrap()
         .replace(" xmlns:imgcull=\"http://imgcull.dev/ns/1.0/\"", "")
         .replace(" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"", "")
-        .replace(" xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"", "")
+        .replace(
+            " xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"",
+            "",
+        )
         .replace(" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"", "")
 }
 

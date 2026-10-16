@@ -72,7 +72,10 @@ async fn run_process(args: cli::ProcessArgs, describe_only: bool) -> Result<()> 
         config.default_settings.backup = true;
     }
 
-    anyhow::ensure!((1..=32).contains(&config.default_settings.concurrency), "concurrency must be 1..=32");
+    anyhow::ensure!(
+        (1..=32).contains(&config.default_settings.concurrency),
+        "concurrency must be 1..=32"
+    );
 
     let prompts_path = args
         .prompts
