@@ -237,8 +237,7 @@ fn set_original_filename_noop_does_not_dirty() {
 
 /// A sidecar containing a self-closing `<imgcull:.../>` element (well-formed
 /// XML, so it survives read-time validation — e.g. hand-edited or written by
-/// a third-party tool) must merge without hanging, and the stale element must
-/// be removed.
+/// a third-party tool) must merge without hanging and preserve unrelated fields.
 #[test]
 fn merge_handles_self_closing_imgcull_element() {
     let tmp = TempDir::new().unwrap();
@@ -270,10 +269,8 @@ fn merge_handles_self_closing_imgcull_element() {
     assert!(result.contains("fresh description"));
 }
 
-/// Re-scoring a fully-populated sidecar must replace every stale
-/// `imgcull:*` element exactly once — the removal loop resumes its scan
-/// from the removal point, and a mix of self-closing and normal elements
-/// must not derail it.
+/// Re-scoring replaces the explicitly managed score properties exactly once,
+/// including a mix of self-closing and normal elements.
 #[test]
 fn merge_removes_all_stale_imgcull_elements() {
     let tmp = TempDir::new().unwrap();

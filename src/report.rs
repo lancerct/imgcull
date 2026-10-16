@@ -146,7 +146,7 @@ fn scan_dir_for_xmp(dir: &Path, results: &mut BTreeSet<PathBuf>) {
 
         let path = entry.path();
         // Same syscall-avoidance as `discovery::scan_dir`: trust the readdir
-        // file type for regular entries, stat only symlinks.
+        // file type for regular entries and skip links.
         match entry.file_type() {
             Ok(ft) if ft.is_dir() => {
                 if !entry.file_name().to_string_lossy().starts_with('.') {

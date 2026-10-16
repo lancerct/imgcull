@@ -101,9 +101,7 @@ fn recurses_into_nested_directories() {
 #[cfg(unix)]
 #[test]
 fn skips_symlinked_directories() {
-    // The scan trusts the readdir file type for regular entries and falls
-    // back to the link-following Path checks for symlinks — a symlinked
-    // subdirectory must still be scanned.
+    // Recursive discovery must not escape the requested folder through a link.
     let real = TempDir::new().unwrap();
     touch(&real, "linked.jpg");
     let root = TempDir::new().unwrap();
