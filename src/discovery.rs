@@ -5,6 +5,43 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// One writer per sidecar. RAW is the identity; a same-stem JPEG is its review source.
+/// Multiple RAWs with the same stem are ambiguous and abort before any writes.
+pub fn deduplicate_images(images: Vec<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut groups: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
+    for path in images {
+        anyhow::ensure!(!fs::symlink_metadata(&path)?.file_type().is_symlink(), "refusing linked image");
+        let canonical = path.canonicalize()?;
+        groups.entry(canonical.with_extension("xmp")).or_default().insert(canonical);
+    }
+    let mut result = Vec::new();
+    for (_, paths) in groups {
+        let raws: Vec<_> = paths.iter().filter(|p| !has_extension(p, &["jpg", "jpeg"])).collect();
+        anyhow::ensure!(raws.len() <= 1, "multiple RAW files share one XMP: {:?}", paths);
+        let selected = raws.first().map(|p| (*p).clone()).unwrap_or_else(|| paths.first().unwrap().clone());
+        result.push(selected);
+    }
+    result.sort();
+    Ok(result)
+}
+
+/// Prefer a full JPEG companion for later native-resolution review.
+pub fn review_source(identity: &Path) -> PathBuf {
+    if has_extension(identity, &["jpg", "jpeg"]) { return identity.to_path_buf(); }
+    if let Some(parent) = identity.parent()
+        && let Ok(entries) = fs::read_dir(parent)
+    {
+        let mut candidates: Vec<_> = entries.filter_map(Result::ok).filter(|e|
+            e.file_type().is_ok_and(|t| t.is_file()) && e.path().file_stem() == identity.file_stem()
+                && has_extension(&e.path(), &["jpg", "jpeg"])).map(|e| e.path()).collect();
+        candidates.sort();
+        if let Some(path) = candidates.into_iter().next() { return path; }
+    }
+    identity.to_path_buf()
+}
+
+
 /// Supported image file extensions (lowercase).
 ///
 /// Single source of truth: [`crate::preprocessing::preprocess_image`] treats
@@ -53,6 +90,7 @@ pub fn discover_images(paths: &[PathBuf]) -> Vec<PathBuf> {
     }
 
     results.sort();
+    results.dedup();
     results
 }
 
@@ -81,19 +119,17 @@ fn scan_dir(dir: &Path, results: &mut Vec<PathBuf>) {
         // error) fall back to the stat-based `Path::is_dir`, which follows
         // links like the original behaviour.
         match entry.file_type() {
-            Ok(ft) if ft.is_dir() => scan_dir(&path, results),
+            Ok(ft) if ft.is_dir() => {
+                if !entry.file_name().to_string_lossy().starts_with('.') {
+                    scan_dir(&path, results);
+                }
+            }
             Ok(ft) if !ft.is_symlink() => {
                 if is_supported(&path) {
                     results.push(path);
                 }
             }
-            _ => {
-                if path.is_dir() {
-                    scan_dir(&path, results);
-                } else if is_supported(&path) {
-                    results.push(path);
-                }
-            }
+            _ => tracing::warn!("skipping symlink or unreadable entry: {}", path.display()),
         }
     }
 }

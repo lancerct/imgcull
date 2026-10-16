@@ -53,6 +53,9 @@ fn write_complete_sidecar(image_path: &Path) {
     let scores = ScoringResult {
         sharpness: Some(0.9),
         exposure: Some(0.8),
+        composition: Some(0.85),
+        subject_clarity: Some(0.85),
+        aesthetics: Some(0.85),
         ..Default::default()
     };
     let mut sidecar = XmpSidecar::new();
@@ -117,7 +120,7 @@ async fn pipeline_force_still_fails_unreadable_images_early() {
     };
     run_pipeline(vec![image.clone()], &config, &prompts, clients, options)
         .await
-        .expect("pipeline should not fail");
+        .expect_err("unreadable photo must fail the run");
 
     let after = std::fs::read_to_string(&sidecar_path).unwrap();
     assert_eq!(

@@ -1186,6 +1186,8 @@ dependencies = [
  "image",
  "indicatif",
  "quick-xml",
+ "roxmltree",
+ "sha2",
  "rawler",
  "rig-core",
  "schemars",
@@ -3768,4 +3770,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
+]
+
+[[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
 ]

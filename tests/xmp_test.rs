@@ -1,4 +1,11 @@
 use std::path::Path;
+fn read_xml(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap()
+        .replace(" xmlns:imgcull=\"http://imgcull.dev/ns/1.0/\"", "")
+        .replace(" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"", "")
+        .replace(" xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"", "")
+        .replace(" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"", "")
+}
 
 use imgcull::scoring::ScoringResult;
 use imgcull::xmp::{XmpSidecar, backup_sidecar, sidecar_for_image};
@@ -46,6 +53,8 @@ fn write_and_read_back() {
         sharpness: Some(0.90),
         exposure: Some(0.75),
         composition: Some(0.80),
+        subject_clarity: Some(0.8),
+        aesthetics: Some(0.8),
         ..Default::default()
     };
 
@@ -67,8 +76,8 @@ fn write_and_read_back() {
     assert!(read_back.has_scores());
 
     // Verify the raw XML contains expected elements.
-    let raw = std::fs::read_to_string(&xmp_path).unwrap();
-    assert!(raw.contains("xmp:Rating=\"4\""));
+    let raw = read_xml(&xmp_path);
+    assert!(raw.contains("<xmp:Rating>4</xmp:Rating>"));
     assert!(raw.contains("<imgcull:score>"));
     assert!(raw.contains("<imgcull:sharpness>0.90</imgcull:sharpness>"));
     assert!(raw.contains("<imgcull:scored_by>claude/test-model</imgcull:scored_by>"));
@@ -95,6 +104,10 @@ fn backup_creates_bak_file() {
 fn has_scores_after_set_scores() {
     let scores = ScoringResult {
         sharpness: Some(0.85),
+        exposure: Some(0.85),
+        composition: Some(0.85),
+        subject_clarity: Some(0.85),
+        aesthetics: Some(0.85),
         ..Default::default()
     };
 
@@ -119,7 +132,7 @@ fn write_and_read_back_keywords() {
     sidecar.write(&xmp_path).expect("should write");
 
     // Verify raw XML structure.
-    let raw = std::fs::read_to_string(&xmp_path).unwrap();
+    let raw = read_xml(&xmp_path);
     assert!(raw.contains("<dc:subject>"));
     assert!(raw.contains("<rdf:Bag>"));
     assert!(raw.contains("<rdf:li>portrait</rdf:li>"));
@@ -164,7 +177,7 @@ fn merge_replaces_existing_keywords() {
     sidecar.set_keywords(&["new-keyword".to_string()]);
     sidecar.write(&xmp_path).expect("should write");
 
-    let result = std::fs::read_to_string(&xmp_path).unwrap();
+    let result = read_xml(&xmp_path);
     assert!(
         !result.contains("old-keyword-1"),
         "old keywords should be removed"
@@ -245,10 +258,10 @@ fn merge_handles_self_closing_imgcull_element() {
         .write(&xmp_path)
         .expect("should write without hanging");
 
-    let result = std::fs::read_to_string(&xmp_path).unwrap();
+    let result = read_xml(&xmp_path);
     assert!(
-        !result.contains("<imgcull:score/>"),
-        "stale self-closing imgcull element should be removed"
+        result.contains("<imgcull:score/>"),
+        "an unrelated write must preserve even empty existing properties"
     );
     assert!(result.contains("fresh description"));
 }
@@ -282,12 +295,15 @@ fn merge_removes_all_stale_imgcull_elements() {
     let scores = ScoringResult {
         sharpness: Some(0.91),
         exposure: Some(0.82),
+        composition: Some(0.87),
+        subject_clarity: Some(0.87),
+        aesthetics: Some(0.87),
         ..Default::default()
     };
     sidecar.set_scores(&scores, 0.87, "new/model");
     sidecar.write(&xmp_path).expect("should write");
 
-    let result = std::fs::read_to_string(&xmp_path).unwrap();
+    let result = read_xml(&xmp_path);
     assert!(
         !result.contains("<imgcull:score>0.10</imgcull:score>"),
         "stale score should be gone"
@@ -333,7 +349,7 @@ fn merge_preserves_third_party_fields() {
     sidecar.set_rating(4);
     sidecar.write(&xmp_path).expect("should write");
 
-    let result = std::fs::read_to_string(&xmp_path).unwrap();
+    let result = read_xml(&xmp_path);
 
     // Third-party fields must be preserved.
     assert!(
@@ -351,7 +367,7 @@ fn merge_preserves_third_party_fields() {
         "description should be written"
     );
     assert!(
-        result.contains("xmp:Rating=\"4\""),
+        result.contains("<xmp:Rating>4</xmp:Rating>"),
         "rating should be written"
     );
 

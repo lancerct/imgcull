@@ -23,6 +23,11 @@ pub enum Commands {
     Report(ReportArgs),
     /// Create default config files
     Init,
+    /// Undo a metadata transaction, refusing to overwrite subsequent edits.
+    Rollback {
+        /// Path to .imgcull/transactions/change-*/transaction.json.
+        transaction: PathBuf,
+    },
 }
 
 /// Arguments for the report subcommand.

@@ -46,6 +46,14 @@ pub struct LlmClients {
 }
 
 impl LlmClients {
+    /// Supply providers explicitly, including deterministic offline test providers.
+    pub fn from_providers<D, S>(description: D, scoring: S) -> Self
+    where
+        D: DescriptionProvider + ScoringProvider + 'static,
+        S: DescriptionProvider + ScoringProvider + 'static,
+    {
+        Self { description_provider: Box::new(description), scoring_provider: Box::new(scoring) }
+    }
     /// Construct `LlmClients` from the project [`Config`] and [`Prompts`].
     ///
     /// Looks up the configured description and scoring provider names in

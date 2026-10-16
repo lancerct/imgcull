@@ -4,6 +4,7 @@ pub mod cli;
 pub mod config;
 pub mod discovery;
 pub mod llm;
+pub mod metadata_transaction;
 pub mod pipeline;
 pub mod preprocessing;
 pub mod report;
