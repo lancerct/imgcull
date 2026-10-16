@@ -341,4 +341,3 @@ pub fn backup_sidecar(path: &Path) -> Result<()> {
         Err(e) => Err(e.error.into()),
     }
 }
-

@@ -237,4 +237,3 @@ fn recovery_cannot_target_photo_pixels() {
     assert!(metadata_transaction::write(&photo, Some(b"original photo"), b"replacement").is_err());
     assert_eq!(fs::read(&photo).unwrap(), b"original photo");
 }
-

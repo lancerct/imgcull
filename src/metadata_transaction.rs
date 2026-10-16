@@ -177,4 +177,3 @@ pub fn rollback(record_path: &Path) -> Result<()> {
     snapshot(&dir.join("rolled-back"), b"rolled back\n")?;
     Ok(())
 }
-
