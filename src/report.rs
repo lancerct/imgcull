@@ -153,10 +153,8 @@ fn scan_dir_for_xmp(dir: &Path, results: &mut BTreeSet<PathBuf>) {
                     scan_dir_for_xmp(&path, results);
                 }
             }
-            Ok(ft) if !ft.is_symlink() => {
-                if is_xmp(&path) {
-                    results.insert(path);
-                }
+            Ok(ft) if ft.is_file() && is_xmp(&path) => {
+                results.insert(path);
             }
             _ => (),
         }

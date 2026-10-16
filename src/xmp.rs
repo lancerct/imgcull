@@ -328,7 +328,10 @@ pub fn backup_sidecar(path: &Path) -> Result<()> {
     use std::io::Write;
     let backup = path.with_extension("xmp.bak");
     let bytes = fs::read(path)?;
-    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let mut output = tempfile::NamedTempFile::new_in(parent)?;
     output.write_all(&bytes)?;
     output.as_file().sync_all()?;

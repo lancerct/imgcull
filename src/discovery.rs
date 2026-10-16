@@ -168,7 +168,7 @@ fn scan_dir(dir: &Path, results: &mut Vec<PathBuf>) {
                     scan_dir(&path, results);
                 }
             }
-            Ok(ft) if !ft.is_symlink() => {
+            Ok(ft) if ft.is_file() => {
                 if is_supported(&path) {
                     results.push(path);
                 }

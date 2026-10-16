@@ -178,7 +178,10 @@ fn same_stem_pair_and_duplicate_inputs_have_one_identity() {
     fs::write(&raw, b"raw").unwrap();
     let found = discovery::deduplicate_images(vec![jpg.clone(), raw.clone(), jpg.clone()]).unwrap();
     assert_eq!(found, vec![raw.canonicalize().unwrap()]);
-    assert_eq!(discovery::review_source(&found[0]), jpg.canonicalize().unwrap());
+    assert_eq!(
+        discovery::review_source(&found[0]),
+        jpg.canonicalize().unwrap()
+    );
 }
 #[test]
 fn ambiguous_raw_collision_is_not_guessed() {

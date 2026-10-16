@@ -36,7 +36,10 @@ fn reject_link(path: &Path) -> Result<()> {
     Ok(())
 }
 fn locked_target(path: &Path) -> Result<(PathBuf, File)> {
-    ensure!(crate::discovery::has_extension(path, &["xmp"]), "metadata transaction target must be an XMP sidecar");
+    ensure!(
+        crate::discovery::has_extension(path, &["xmp"]),
+        "metadata transaction target must be an XMP sidecar"
+    );
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -47,7 +50,9 @@ fn locked_target(path: &Path) -> Result<(PathBuf, File)> {
     let locks = state_directory(&target)?.join("locks");
     reject_link(&locks)?;
     fs::create_dir_all(&locks)?;
-    let lock_path = locks.join(target.file_name().context("missing filename")?).with_extension("xmp.lock");
+    let lock_path = locks
+        .join(target.file_name().context("missing filename")?)
+        .with_extension("xmp.lock");
     reject_link(&lock_path)?;
     let lock = OpenOptions::new()
         .read(true)
@@ -132,7 +137,12 @@ pub fn write(path: &Path, expected: Option<&[u8]>, content: &[u8]) -> Result<()>
 }
 /// Roll back only if the file still equals this transaction's output.
 pub fn rollback(record_path: &Path) -> Result<()> {
-    ensure!(record_path.file_name().is_some_and(|n| n == "transaction.json"), "expected transaction.json");
+    ensure!(
+        record_path
+            .file_name()
+            .is_some_and(|n| n == "transaction.json"),
+        "expected transaction.json"
+    );
     let record_path = record_path.canonicalize()?;
     let dir = record_path.parent().context("missing transaction folder")?;
     let record: Record = serde_json::from_slice(&fs::read(&record_path)?)?;
