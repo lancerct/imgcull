@@ -13,7 +13,10 @@ pub fn deduplicate_images(images: Vec<PathBuf>) -> anyhow::Result<Vec<PathBuf>> 
     for path in images {
         anyhow::ensure!(!fs::symlink_metadata(&path)?.file_type().is_symlink(), "refusing linked image");
         let canonical = path.canonicalize()?;
-        groups.entry(canonical.with_extension("xmp")).or_default().insert(canonical);
+        let target = canonical.with_extension("xmp");
+        #[cfg(windows)]
+        let target = PathBuf::from(target.to_str().ok_or_else(|| anyhow::anyhow!("non-Unicode path"))?.to_lowercase());
+        groups.entry(target).or_default().insert(canonical);
     }
     let mut result = Vec::new();
     for (_, paths) in groups {
@@ -33,7 +36,7 @@ pub fn review_source(identity: &Path) -> PathBuf {
         && let Ok(entries) = fs::read_dir(parent)
     {
         let mut candidates: Vec<_> = entries.filter_map(Result::ok).filter(|e|
-            e.file_type().is_ok_and(|t| t.is_file()) && e.path().file_stem() == identity.file_stem()
+            e.file_type().is_ok_and(|t| t.is_file()) && same_stem(&e.path(), identity)
                 && has_extension(&e.path(), &["jpg", "jpeg"])).map(|e| e.path()).collect();
         candidates.sort();
         if let Some(path) = candidates.into_iter().next() { return path; }
@@ -60,6 +63,13 @@ pub fn has_extension(path: &Path, extensions: &[&str]) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| extensions.iter().any(|&s| s.eq_ignore_ascii_case(ext)))
+}
+
+fn same_stem(a: &Path, b: &Path) -> bool {
+    #[cfg(windows)]
+    { a.file_stem().and_then(|v| v.to_str()).map(str::to_lowercase) == b.file_stem().and_then(|v| v.to_str()).map(str::to_lowercase) }
+    #[cfg(not(windows))]
+    { a.file_stem() == b.file_stem() }
 }
 
 /// Returns `true` if the file at `path` has a supported image extension (case-insensitive).

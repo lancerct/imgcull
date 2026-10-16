@@ -98,7 +98,7 @@ pub async fn run_pipeline(
 
     for image_path in images {
         let failures = failures.clone();
-        let sem = semaphore.clone();
+        let permit = semaphore.clone().acquire_owned().await?;
         let clients = clients.clone();
         let summary = summary.clone();
         let prompts_rendered = prompts_rendered.clone();
@@ -107,7 +107,7 @@ pub async fn run_pipeline(
         let pb = pb.clone();
 
         tasks.spawn(async move {
-            let _permit = sem.acquire().await.unwrap();
+            let _permit = permit;
             let filename = image_path
                 .file_name()
                 .unwrap_or_default()
@@ -294,6 +294,7 @@ pub async fn run_pipeline(
     }
 
     pb.finish_and_clear();
+    summary.failed.store(failures.load(Ordering::Relaxed), Ordering::Relaxed);
     summary.display();
     ensure!(failures.load(Ordering::Relaxed) == 0, "{} photo(s) failed; inspect errors and retry", failures.load(Ordering::Relaxed));
     Ok(())
