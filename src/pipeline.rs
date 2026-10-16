@@ -241,10 +241,6 @@ pub async fn run_pipeline(
                         if !(options.no_rating || options.describe_only || sidecar.has_rating()) {
                             sidecar.set_rating(stars);
                         }
-                        let star_display =
-                            "★".repeat(stars as usize) + &"☆".repeat(5 - stars as usize);
-                        pb.println(format!("  {filename} {star_display} ({overall:.2})"));
-
                         scored = Some(overall);
                     }
                     Err(e) => {
@@ -286,7 +282,10 @@ pub async fn run_pipeline(
                 }
             }
             if described { summary.described.fetch_add(1, Ordering::Relaxed); }
-            if let Some(overall) = scored { summary.record_score(&filename, overall); }
+            if let Some(overall) = scored {
+                summary.record_score(&filename, overall);
+                pb.println(format!("  {filename}: score saved ({overall:.2}); existing human metadata preserved"));
+            }
             pb.inc(1);
         });
     }

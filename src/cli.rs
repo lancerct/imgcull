@@ -101,11 +101,11 @@ pub struct ProcessArgs {
     #[arg(long)]
     pub no_rating: bool,
 
-    /// Backup existing .xmp sidecars to .xmp.bak before modifying.
+    /// Also keep the first legacy .xmp.bak (recovery transactions are always recorded).
     #[arg(long)]
     pub backup: bool,
 
-    /// Re-process even if already scored/described.
+    /// Re-score custom imgcull fields; preserve existing human metadata.
     #[arg(long)]
     pub force: bool,
 
