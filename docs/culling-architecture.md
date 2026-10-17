@@ -14,7 +14,7 @@ The product is one Rust engine with a thin future skill. The skill coordinates t
 | Apply / rollback | xmp + metadata_transaction | validated plan → narrow XMP updates and recovery journal | metadata writes only |
 | Verify Lightroom | future integration | applied metadata + Lightroom display → mismatch report | explicit read/sync workflow |
 
-Preparing files is not a visual judgment. A native focus asset existing on disk does not prove a reviewer saw it or selected the right subject. Overview-only evidence must never be promoted to a final focus verdict.
+Only the future review store owns job/review status; evidence artifacts never duplicate or reset it. Preparing files is not a visual judgment. A native focus asset existing on disk does not prove a reviewer saw it or selected the right subject. Overview-only evidence must never be promoted to a final focus verdict.
 
 The existing score/describe commands remain a legacy overview pipeline. Their output does not satisfy this personal native-detail review contract. Migration to the typed decision flow is a separate iteration; do not install a skill that treats legacy overview scores as final culling decisions.
 
@@ -58,12 +58,14 @@ Requests are a JSON array in orientation-normalized native coordinates:
 
 Roles: focus, context, edge. Each detail edge must be 1–1024 pixels; split larger areas into explicit regions. There is no automatic subject detection in this iteration. Up to 64 regions can be prepared together without re-decoding for each crop. Re-running prepare with new requests decodes again; no persistent full-frame raster cache or memory-budgeted LRU is claimed.
 
-The output contains evidence.json, overview.jpg, and unscaled detail-NNNN.png files. Standard output is a compact JSON summary with review_status=unreviewed. Empty/edge-only requests do not invent focus coverage. The bundle is immutable; verify and reuse it, or choose a new output. Source/view changes invalidate reuse. Hashes detect accidental corruption and stale sources; they are not signatures against someone able to rewrite the whole manifest and its hashes.
+The output contains evidence.json, overview.jpg, and unscaled detail-NNNN.png files. Standard output is a compact JSON summary with contains_visual_verdict=false. Empty/edge-only requests do not invent focus coverage. The bundle is immutable; verify and reuse it, or choose a new output. Source/view changes invalidate reuse. Hashes detect accidental corruption and stale sources; they are not signatures against someone able to rewrite the whole manifest and its hashes.
 
 CLI output contains no image base64 or repeated review history. This reduces repeated text and enables cached evidence reuse; it does not reduce the visual evidence needed for a reliable decision, and it is not a measured token-savings claim. Local-model accuracy and context behavior still require evaluation.
 
 ## Remaining work
 
 Native geometry and focus samples do not certify calibrated color. RenderInfo records unmanaged-raster or raw-default-srgb. Raster ICC conversion is not implemented; color-managed artistic/edit assessment must be added before final color judgments.
+
+Provider image preprocessing can downsample even a native PNG crop. The future review transport must choose crop sizes compatible with the provider/model and record what was actually submitted; a 1024px file alone does not certify 1:1 model inspection. Unsupported RAW development fails rather than substituting a preview; library panics are contained as errors, without claiming protection against process-level out-of-memory aborts.
 
 Automatic subject-region proposals; actual native-detail model review and coverage records; burst/stack protection; user-calibrated 3/4/5-star and red/green policy; durable job progress and resumable review ledger; plan/apply integration; independent JPEG embedded metadata synchronization; Lightroom verification; and final skill packaging.

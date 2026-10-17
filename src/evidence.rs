@@ -26,7 +26,7 @@ pub struct EvidenceSummary {
     /// Focus assets available for a later reviewer.
     pub focus_ids: Vec<String>,
     /// Preparing/validating files never constitutes a visual verdict.
-    pub review_status: &'static str,
+    pub contains_visual_verdict: bool,
 }
 
 /// Why a native crop was requested; overview is generated separately.
@@ -98,7 +98,7 @@ impl Evidence {
             decoding: self.render.decoding.clone(),
             detail_count: self.views.len().saturating_sub(1),
             focus_ids: self.focus_ids().into_iter().map(str::to_string).collect(),
-            review_status: "unreviewed",
+            contains_visual_verdict: false,
         }
     }
     fn checksum(&self) -> Result<String> {
