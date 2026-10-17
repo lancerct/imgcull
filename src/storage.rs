@@ -17,7 +17,10 @@ pub(crate) fn read_json<T: DeserializeOwned>(path: &Path, limit: u64) -> Result<
     File::open(path)?
         .take(limit.saturating_add(1))
         .read_to_end(&mut bytes)?;
-    ensure!(bytes.len() as u64 <= limit, "control JSON grew beyond limit");
+    ensure!(
+        bytes.len() as u64 <= limit,
+        "control JSON grew beyond limit"
+    );
     Ok(serde_json::from_slice(&bytes)?)
 }
 

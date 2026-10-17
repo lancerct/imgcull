@@ -262,7 +262,10 @@ fn control_json_refuses_nonfiles_and_oversized_inputs() {
     let oversized = root.path().join("oversized.json");
     fs::write(&oversized, vec![b' '; calibration::MAX_BYTES as usize + 1]).unwrap();
     assert!(calibration::read_json::<serde_json::Value>(&oversized).is_err());
-    assert_eq!(fs::metadata(&oversized).unwrap().len(), calibration::MAX_BYTES + 1);
+    assert_eq!(
+        fs::metadata(&oversized).unwrap().len(),
+        calibration::MAX_BYTES + 1
+    );
 }
 
 #[test]
