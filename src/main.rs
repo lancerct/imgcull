@@ -16,6 +16,37 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::CalibrationPublish { input, output } => {
+            let id = imgcull::calibration::publish(&input, &output)?;
+            println!("{}", serde_json::json!({"profile_id": id, "can_apply": false}));
+            Ok(())
+        }
+        Commands::CalibrationContext { profile, tags } => {
+            let profile = imgcull::calibration::load(&profile)?;
+            println!("{}", serde_json::to_string(&imgcull::calibration::context(&profile, &tags)?)?);
+            Ok(())
+        }
+        Commands::CalibrationEvaluate { profile, predictions, split } => {
+            let profile = imgcull::calibration::load(&profile)?;
+            let predictions = imgcull::calibration::read_json(&predictions)?;
+            let report = imgcull::calibration::evaluate(&profile, &predictions, split)?;
+            println!("{}", serde_json::to_string(&report)?);
+            anyhow::ensure!(report.passed, "calibration decisions differ; inspect the JSON discrepancies");
+            Ok(())
+        }
+        Commands::SuggestSimilar { bundles, distance } => {
+            println!("{}", serde_json::to_string(&imgcull::similarity::suggest(&bundles, distance)?)?);
+            Ok(())
+        }
+        Commands::ReviewContext { directory, tags } => {
+            println!("{}", serde_json::to_string(&imgcull::review::context(&directory, &tags)?)?);
+            Ok(())
+        }
+        Commands::ReviewReport { directory, output, offset, limit } => {
+            imgcull::review::write_report(&directory, &output, offset, limit)?;
+            println!("{}", serde_json::json!({"report": output, "can_apply": false}));
+            Ok(())
+        }
         Commands::VerifyLightroomExport { directory } => {
             println!(
                 "{}",
@@ -62,10 +93,11 @@ async fn main() -> Result<()> {
             paths,
             output,
             min_pixels,
+            calibration,
         } => {
             println!(
                 "{}",
-                serde_json::to_string(&imgcull::review::create(&paths, &output, min_pixels)?)?
+                serde_json::to_string(&imgcull::review::create_with_profile(&paths, &output, min_pixels, calibration.as_deref())?)?
             );
             Ok(())
         }

@@ -1,0 +1,380 @@
+{
+  "schema": 1,
+  "profile_id": "",
+  "parent_id": null,
+  "change": "Separate redundancy from poor quality; capture user correction and scene counterexamples. Declarative cases, not a vision benchmark.",
+  "rules": [
+    {
+      "id": "purpose-first",
+      "tags": [],
+      "text": "Identify artistic, personal, documentary and synthesis purposes before marking. Unresolved purposes remain unmarked."
+    },
+    {
+      "id": "redundancy",
+      "tags": [
+        "near_duplicate",
+        "burst"
+      ],
+      "text": "After verifying native detail/current appearance, retain a sound equally good or better representative and red redundant frames without unique value. No low-score requirement. Hash similarity only proposes comparison."
+    },
+    {
+      "id": "distinct-moments",
+      "tags": [
+        "portrait",
+        "bird",
+        "burst"
+      ],
+      "text": "Keep all worthwhile different expressions/actions/behaviors; no fixed keeper count. If no good frame exists, retain the best meaningful representative, optionally unstarred."
+    },
+    {
+      "id": "protect-inputs",
+      "tags": [
+        "stack",
+        "astro",
+        "bracket",
+        "panorama"
+      ],
+      "text": "Protect synthesis inputs as a sequence; do not select just one because frames look alike."
+    },
+    {
+      "id": "record-value",
+      "tags": [
+        "exhibit",
+        "documentary",
+        "bird"
+      ],
+      "text": "Account for useful species, behavior, object, inscription and angle differences; portfolio aesthetics alone do not define value."
+    },
+    {
+      "id": "concrete-edits",
+      "tags": [],
+      "text": "Suggest green only for retained frames with a concrete useful adjustment based on current LR appearance; RAW alone does not require green."
+    },
+    {
+      "id": "evidence-first",
+      "tags": [],
+      "text": "Preferences cannot override original native inspection, current LR appearance, uncertainty, protected sequences or metadata safety gates."
+    }
+  ],
+  "cases": [
+    {
+      "id": "table-equivalent",
+      "split": "teaching",
+      "tags": [
+        "food",
+        "near_duplicate"
+      ],
+      "origin": "user_correction",
+      "failure": "grouping",
+      "lesson": "A technically good, high-scoring near duplicate can be red for redundancy. This lesson does not certify the screenshot pair's native sharpness.",
+      "frames": [
+        {
+          "id": "a",
+          "facts": [
+            "Same dish, useful content and composition as b.",
+            "Assumption for this lesson: full native detail and current LR appearance were verified; no meaningful quality loss versus b."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "retain",
+            "keeper": null,
+            "stars": 4,
+            "green": false
+          }
+        },
+        {
+          "id": "b",
+          "facts": [
+            "No different useful angle, detail or moment.",
+            "a is an explicitly retained, equally good alternative."
+          ],
+          "previous": {
+            "action": "leave",
+            "keeper": null,
+            "stars": null,
+            "green": false
+          },
+          "expected": {
+            "action": "redundant",
+            "keeper": "a",
+            "stars": null,
+            "green": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "portrait-distinct",
+      "split": "teaching",
+      "tags": [
+        "portrait",
+        "burst"
+      ],
+      "origin": "user_preference",
+      "failure": "grouping",
+      "lesson": "Keep unlimited good distinct actions; visual similarity alone cannot discard either.",
+      "frames": [
+        {
+          "id": "a",
+          "facts": [
+            "Good expression; standing pose."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "retain",
+            "keeper": null,
+            "stars": 4,
+            "green": false
+          }
+        },
+        {
+          "id": "b",
+          "facts": [
+            "Good expression; a meaningfully different walking action."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "retain",
+            "keeper": null,
+            "stars": 4,
+            "green": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "bird-behavior",
+      "split": "teaching",
+      "tags": [
+        "bird",
+        "burst"
+      ],
+      "origin": "user_preference",
+      "failure": "grouping",
+      "lesson": "No visible eye is not by itself a reject; distinct behavior matters.",
+      "frames": [
+        {
+          "id": "a",
+          "facts": [
+            "Sharp feeding behavior."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "retain",
+            "keeper": null,
+            "stars": 3,
+            "green": false
+          }
+        },
+        {
+          "id": "b",
+          "facts": [
+            "Preening, back turned, no visible eye; behavior is readable and useful."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "retain",
+            "keeper": null,
+            "stars": 3,
+            "green": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "weak-representative",
+      "split": "teaching",
+      "tags": [
+        "portrait",
+        "burst"
+      ],
+      "origin": "user_preference",
+      "failure": "grouping",
+      "lesson": "A weak group still needs a retained representative; retaining does not require stars.",
+      "frames": [
+        {
+          "id": "a",
+          "facts": [
+            "Best meaningful frame of a weak group; not strong enough for stars."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "retain",
+            "keeper": null,
+            "stars": null,
+            "green": false
+          }
+        },
+        {
+          "id": "b",
+          "facts": [
+            "No additional useful expression; a is visibly better."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "redundant",
+            "keeper": "a",
+            "stars": null,
+            "green": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "uncertain-material",
+      "split": "teaching",
+      "tags": [
+        "near_duplicate",
+        "uncertain"
+      ],
+      "origin": "user_preference",
+      "failure": "grouping",
+      "lesson": "Preserve uncertainty rather than converting a similarity hint into red advice.",
+      "frames": [
+        {
+          "id": "a",
+          "facts": [
+            "Native subject details or sequence purpose are unresolved."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "leave",
+            "keeper": null,
+            "stars": null,
+            "green": false
+          }
+        },
+        {
+          "id": "b",
+          "facts": [
+            "Similar to a, but no verified sound keeper exists."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "leave",
+            "keeper": null,
+            "stars": null,
+            "green": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "protected-astro",
+      "split": "validation",
+      "tags": [
+        "astro",
+        "stack"
+      ],
+      "origin": "synthetic_counterexample",
+      "failure": "grouping",
+      "lesson": "Do not cull the inputs of a confirmed stack.",
+      "frames": [
+        {
+          "id": "a",
+          "facts": [
+            "Confirmed astronomy stacking input."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "leave",
+            "keeper": null,
+            "stars": null,
+            "green": false
+          }
+        },
+        {
+          "id": "b",
+          "facts": [
+            "Adjacent stacking input; appears nearly identical to a."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "leave",
+            "keeper": null,
+            "stars": null,
+            "green": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "exhibit-details",
+      "split": "validation",
+      "tags": [
+        "exhibit",
+        "documentary"
+      ],
+      "origin": "synthetic_counterexample",
+      "failure": "grouping",
+      "lesson": "The same object is not the same useful content; documentation can justify both.",
+      "frames": [
+        {
+          "id": "a",
+          "facts": [
+            "Full object record."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "retain",
+            "keeper": null,
+            "stars": 3,
+            "green": false
+          }
+        },
+        {
+          "id": "b",
+          "facts": [
+            "Useful inscription detail absent from a."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "retain",
+            "keeper": null,
+            "stars": 3,
+            "green": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "equivalent-landscape",
+      "split": "validation",
+      "tags": [
+        "landscape",
+        "near_duplicate"
+      ],
+      "origin": "synthetic_counterexample",
+      "failure": "grouping",
+      "lesson": "Transfer the table lesson to an equivalent landscape pair, without imposing a low artistic-score requirement.",
+      "frames": [
+        {
+          "id": "a",
+          "facts": [
+            "Full native subject detail/current appearance checked; equal quality and identical useful content to b."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "retain",
+            "keeper": null,
+            "stars": 4,
+            "green": false
+          }
+        },
+        {
+          "id": "b",
+          "facts": [
+            "No meaningful differences; a is directly retained."
+          ],
+          "previous": null,
+          "expected": {
+            "action": "redundant",
+            "keeper": "a",
+            "stars": null,
+            "green": false
+          }
+        }
+      ]
+    }
+  ]
+}

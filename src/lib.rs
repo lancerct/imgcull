@@ -1,5 +1,7 @@
 //! imgcull — AI-powered image culling tool using vision LLMs.
 
+pub mod calibration;
+pub mod similarity;
 pub mod cli;
 pub mod config;
 pub mod discovery;

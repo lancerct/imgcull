@@ -10,6 +10,7 @@ Read it when changing the personal culling workflow; do not copy module ownershi
 - imaging owns full source decode, orientation and native crop coordinates. preprocessing is only an overview adapter.
 - evidence owns immutable materials and hashes, not visual verdicts or job status.
 - review alone owns review/job progress. policy validates observations; only a future validated plan may reach xmp and metadata_transaction.
+- calibration owns immutable preference/correction artifacts, not review progress; jobs freeze a published revision. similarity only proposes pairs, never keepers or rejections. See docs/calibration-and-comparison.md.
 - integrity and storage provide shared hash/immutable-write primitives.
 - Native assets existing is not proof of completed focus inspection. Legacy overview score/describe is not the personal final-culling workflow.
 - Judge artistic value against Lightroom current edits, and technical detail against the full original. Hold unsupported rendition/provider inspection paths; never substitute default RAW development.
