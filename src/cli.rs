@@ -45,7 +45,10 @@ pub enum Commands {
     /// Compact recorded/pending progress; does not certify current sources.
     ReviewStatus { directory: PathBuf },
     /// Read one latest draft without replaying its full history.
-    ReviewShow { directory: PathBuf, photo_id: String },
+    ReviewShow {
+        directory: PathBuf,
+        photo_id: String,
+    },
     /// List a bounded page of logical photo IDs for scheduling.
     ReviewList {
         directory: PathBuf,

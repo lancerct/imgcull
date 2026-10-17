@@ -51,30 +51,74 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Commands::Rollback { transaction } => imgcull::metadata_transaction::rollback(&transaction),
-        Commands::ReviewInit { paths, output, min_pixels } => {
-            println!("{}", serde_json::to_string(&imgcull::review::create(&paths, &output, min_pixels)?)?);
+        Commands::ReviewInit {
+            paths,
+            output,
+            min_pixels,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string(&imgcull::review::create(&paths, &output, min_pixels)?)?
+            );
             Ok(())
         }
         Commands::ReviewStatus { directory } => {
-            println!("{}", serde_json::to_string(&imgcull::review::status(&directory)?)?);
+            println!(
+                "{}",
+                serde_json::to_string(&imgcull::review::status(&directory)?)?
+            );
             Ok(())
         }
-        Commands::ReviewShow { directory, photo_id } => {
-            println!("{}", serde_json::to_string(&imgcull::review::show(&directory, &photo_id)?)?);
+        Commands::ReviewShow {
+            directory,
+            photo_id,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string(&imgcull::review::show(&directory, &photo_id)?)?
+            );
             Ok(())
         }
-        Commands::ReviewList { directory, offset, limit } => {
-            println!("{}", serde_json::to_string(&imgcull::review::page(&directory, offset, limit)?)?);
+        Commands::ReviewList {
+            directory,
+            offset,
+            limit,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string(&imgcull::review::page(&directory, offset, limit)?)?
+            );
             Ok(())
         }
-        Commands::RecordReview { directory, expected_revision, photo_id, evidence, observation } => {
-            anyhow::ensure!(std::fs::metadata(&observation)?.len() <= 512 * 1024, "oversized observation");
+        Commands::RecordReview {
+            directory,
+            expected_revision,
+            photo_id,
+            evidence,
+            observation,
+        } => {
+            anyhow::ensure!(
+                std::fs::metadata(&observation)?.len() <= 512 * 1024,
+                "oversized observation"
+            );
             let observation = serde_json::from_slice(&std::fs::read(observation)?)?;
-            println!("{}", serde_json::to_string(&imgcull::review::record(&directory, expected_revision, &photo_id, &evidence, observation)?)?);
+            println!(
+                "{}",
+                serde_json::to_string(&imgcull::review::record(
+                    &directory,
+                    expected_revision,
+                    &photo_id,
+                    &evidence,
+                    observation
+                )?)?
+            );
             Ok(())
         }
         Commands::ReviewCheck { directory } => {
-            println!("{}", serde_json::to_string(&imgcull::review::check(&directory)?)?);
+            println!(
+                "{}",
+                serde_json::to_string(&imgcull::review::check(&directory)?)?
+            );
             Ok(())
         }
     }

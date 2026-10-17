@@ -125,36 +125,75 @@ fn note(value: &str) -> bool {
 /// Validate structure and coverage against verified evidence. Missing coverage
 /// holds a proposal; malformed or invented view references are rejected.
 pub fn validate(observation: &Observation, evidence: &Evidence) -> Result<Validation> {
-    ensure!(observation.evidence_id == evidence.evidence_id, "review/evidence mismatch");
-    ensure!(note(&observation.reviewer) && note(&observation.reason), "missing/oversized review notes");
+    ensure!(
+        observation.evidence_id == evidence.evidence_id,
+        "review/evidence mismatch"
+    );
+    ensure!(
+        note(&observation.reviewer) && note(&observation.reason),
+        "missing/oversized review notes"
+    );
     ensure!(note(&observation.group), "missing group identity");
-    ensure!(observation.artistic_score.is_none_or(|n| n <= 10), "artistic score must be 0..=10");
-    ensure!(observation.technical_failure.as_deref().is_none_or(note), "invalid technical explanation");
-    ensure!(observation.edits.len() <= 16 && observation.edits.iter().all(|n| note(n)), "invalid edit suggestions");
+    ensure!(
+        observation.artistic_score.is_none_or(|n| n <= 10),
+        "artistic score must be 0..=10"
+    );
+    ensure!(
+        observation.technical_failure.as_deref().is_none_or(note),
+        "invalid technical explanation"
+    );
+    ensure!(
+        observation.edits.len() <= 16 && observation.edits.iter().all(|n| note(n)),
+        "invalid edit suggestions"
+    );
     ensure!(observation.seen.len() <= 65, "too many viewed assets");
     let mut seen = BTreeSet::new();
     let mut focus = false;
     for receipt in &observation.seen {
         ensure!(seen.insert(receipt.id.as_str()), "duplicate viewed asset");
-        let view = evidence.views.iter().find(|v| v.id == receipt.id)
+        let view = evidence
+            .views
+            .iter()
+            .find(|v| v.id == receipt.id)
             .ok_or_else(|| anyhow::anyhow!("invented viewed asset"))?;
-        ensure!(receipt.sha256 == view.sha256 && receipt.width == view.width && receipt.height == view.height,
-            "viewed asset changed or was resized");
-        focus |= view.detail.as_ref().is_some_and(|d| d.role == DetailRole::Focus);
+        ensure!(
+            receipt.sha256 == view.sha256
+                && receipt.width == view.width
+                && receipt.height == view.height,
+            "viewed asset changed or was resized"
+        );
+        focus |= view
+            .detail
+            .as_ref()
+            .is_some_and(|d| d.role == DetailRole::Focus);
     }
-    if let Proposal::Retain { stars: Some(stars), .. } = observation.proposal {
+    if let Proposal::Retain {
+        stars: Some(stars), ..
+    } = observation.proposal
+    {
         ensure!((3..=5).contains(&stars), "personal stars must be 3, 4 or 5");
     }
     let mut blockers = Vec::new();
     let mut hold = |condition: bool, code: &str| {
-        if condition { blockers.push(code.to_string()); }
+        if condition {
+            blockers.push(code.to_string());
+        }
     };
     if observation.proposal != Proposal::Leave {
         hold(observation.uncertain, "uncertain");
         hold(!seen.contains("overview"), "composition_not_reviewed");
-        hold(!focus || observation.inspection != Inspection::HumanNative, "native_inspection_unverified");
+        hold(
+            !focus || observation.inspection != Inspection::HumanNative,
+            "native_inspection_unverified",
+        );
         hold(!observation.edges_checked, "edges_not_reviewed");
-        hold(!matches!(observation.sequence, SequenceKind::Independent | SequenceKind::Burst), "protected_or_unknown_sequence");
+        hold(
+            !matches!(
+                observation.sequence,
+                SequenceKind::Independent | SequenceKind::Burst
+            ),
+            "protected_or_unknown_sequence",
+        );
         // The user chose LR's current developed appearance for artistic value.
         // Current evidence is original JPEG/default RAW. Until a verified LR
         // rendition adapter exists, never accept an artistic/green/star verdict.
@@ -168,17 +207,29 @@ pub fn validate(observation: &Observation, evidence: &Evidence) -> Result<Valida
     match &observation.proposal {
         Proposal::Leave => (),
         Proposal::Retain { green, .. } => {
-            hold(*green && observation.edits.is_empty(), "green_requires_concrete_edit");
+            hold(
+                *green && observation.edits.is_empty(),
+                "green_requires_concrete_edit",
+            );
         }
         Proposal::Red { replacement } => {
             hold(observation.record_value, "unique_record_value");
             if observation.technical_failure.is_none() {
-                hold(!observation.artistic_score.is_some_and(|n| n <= 5), "red_score_too_high_or_missing");
-                hold(observation.artistic_score == Some(5) && replacement.is_none(), "score_five_requires_better_retained_alternative");
+                hold(
+                    !observation.artistic_score.is_some_and(|n| n <= 5),
+                    "red_score_too_high_or_missing",
+                );
+                hold(
+                    observation.artistic_score == Some(5) && replacement.is_none(),
+                    "score_five_requires_better_retained_alternative",
+                );
             }
         }
     }
-    Ok(Validation { proposal_valid: blockers.is_empty(), blockers })
+    Ok(Validation {
+        proposal_valid: blockers.is_empty(),
+        blockers,
+    })
 }
 
 /// Check cross-frame claims using the complete latest group observations.
@@ -192,19 +243,41 @@ pub fn group_blockers(members: &[(&str, &Observation)]) -> Result<Vec<String>> {
     }
     let mut blockers = BTreeSet::new();
     for (id, observation) in members {
-        let peers: Vec<_> = members.iter().filter(|(_, other)| other.group == observation.group).collect();
-        ensure!(peers.iter().all(|(_, other)| other.sequence == observation.sequence), "conflicting sequence classification");
-        if observation.sequence == SequenceKind::Burst && !peers.iter().any(|(_, p)| matches!(p.proposal, Proposal::Retain { .. }) && !p.uncertain) {
+        let peers: Vec<_> = members
+            .iter()
+            .filter(|(_, other)| other.group == observation.group)
+            .collect();
+        ensure!(
+            peers
+                .iter()
+                .all(|(_, other)| other.sequence == observation.sequence),
+            "conflicting sequence classification"
+        );
+        if observation.sequence == SequenceKind::Burst
+            && !peers
+                .iter()
+                .any(|(_, p)| matches!(p.proposal, Proposal::Retain { .. }) && !p.uncertain)
+        {
             blockers.insert("burst_requires_retained_representative".to_string());
         }
-        if let Proposal::Red { replacement: Some(replacement) } = &observation.proposal {
+        if let Proposal::Red {
+            replacement: Some(replacement),
+        } = &observation.proposal
+        {
             let better = peers.iter().find(|(peer_id, _)| peer_id == replacement);
             let valid = better.is_some_and(|(peer_id, other)| {
-                *peer_id != *id && observation.sequence == SequenceKind::Burst
-                    && !other.uncertain && matches!(other.proposal, Proposal::Retain { .. })
-                    && other.artistic_score.zip(observation.artistic_score).is_some_and(|(a, b)| a > b)
+                *peer_id != *id
+                    && observation.sequence == SequenceKind::Burst
+                    && !other.uncertain
+                    && matches!(other.proposal, Proposal::Retain { .. })
+                    && other
+                        .artistic_score
+                        .zip(observation.artistic_score)
+                        .is_some_and(|(a, b)| a > b)
             });
-            if !valid { blockers.insert("replacement_must_be_better_retained_comparable_frame".to_string()); }
+            if !valid {
+                blockers.insert("replacement_must_be_better_retained_comparable_frame".to_string());
+            }
         }
     }
     Ok(blockers.into_iter().collect())
