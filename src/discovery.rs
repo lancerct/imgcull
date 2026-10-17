@@ -85,6 +85,32 @@ pub fn review_source(identity: &Path) -> PathBuf {
     identity.to_path_buf()
 }
 
+/// Enumerate all supported physical companions, even when only one was selected.
+/// Reject ambiguous RAW identities and linked companions rather than freezing an
+/// incomplete asset set for a later metadata plan.
+pub fn photo_assets(image: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    anyhow::ensure!(is_supported(image), "unsupported photo identity");
+    anyhow::ensure!(
+        !fs::symlink_metadata(image)?.file_type().is_symlink(),
+        "refusing linked image"
+    );
+    let image = image.canonicalize()?;
+    let mut assets = Vec::new();
+    for entry in fs::read_dir(image.parent().unwrap())? {
+        let entry = entry?;
+        let path = entry.path();
+        if same_stem(&path, &image) && is_supported(&path) {
+            anyhow::ensure!(entry.file_type()?.is_file(), "non-regular photo companion");
+            assets.push(path.canonicalize()?);
+        }
+    }
+    assets.sort();
+    assets.dedup();
+    anyhow::ensure!(assets.contains(&image), "identity disappeared during discovery");
+    deduplicate_images(assets.clone())?;
+    Ok(assets)
+}
+
 /// Supported image file extensions (lowercase).
 ///
 /// Single source of truth: [`crate::preprocessing::preprocess_image`] treats

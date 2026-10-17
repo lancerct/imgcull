@@ -9,9 +9,10 @@ Read it when changing the personal culling workflow; do not copy module ownershi
 - discovery owns supported extensions, photo keys, sidecar mapping and RAW/JPEG pairing.
 - imaging owns full source decode, orientation and native crop coordinates. preprocessing is only an overview adapter.
 - evidence owns immutable materials and hashes, not visual verdicts or job status.
-- The future review store alone owns review/job progress. Policy validates observations before a plan can reach xmp and metadata_transaction.
+- review alone owns review/job progress. policy validates observations; only a future validated plan may reach xmp and metadata_transaction.
 - integrity and storage provide shared hash/immutable-write primitives.
 - Native assets existing is not proof of completed focus inspection. Legacy overview score/describe is not the personal final-culling workflow.
+- Judge artistic value against Lightroom current edits, and technical detail against the full original. Hold unsupported rendition/provider inspection paths; never substitute default RAW development.
 - Keep public interfaces small and documented. Add a shared abstraction for real repeated behavior, not speculative extension points.
 - Keep CLI output compact. Persist detailed evidence and progress; do not replay full histories or image base64 through every agent prompt.
 - Use synthetic test files. Never commit private photos, catalog data, real user paths, credentials or generated review bundles.

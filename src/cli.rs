@@ -30,6 +30,39 @@ pub enum Commands {
         /// Directory containing evidence.json.
         directory: PathBuf,
     },
+    /// Freeze sources and existing XMP for a new resumable review job.
+    ReviewInit {
+        /// Photos or directories; same-stem companions are counted once.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// New task directory; existing jobs cannot be replaced.
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Compact recorded/pending progress; does not certify current sources.
+    ReviewStatus { directory: PathBuf },
+    /// List a bounded page of logical photo IDs for scheduling.
+    ReviewList {
+        directory: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    /// Save a draft observation; never apply its proposals to XMP.
+    RecordReview {
+        directory: PathBuf,
+        #[arg(long)]
+        expected_revision: u64,
+        #[arg(long)]
+        photo_id: String,
+        #[arg(long)]
+        evidence: PathBuf,
+        #[arg(long)]
+        observation: PathBuf,
+    },
+    /// Check current sources, visual coverage and group constraints; no XMP writes.
+    ReviewCheck { directory: PathBuf },
     /// Undo a metadata transaction, refusing to overwrite subsequent edits.
     Rollback {
         /// Path to .imgcull/transactions/change-*/transaction.json.

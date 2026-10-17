@@ -24,7 +24,13 @@ jobs:
         with:
           cache-on-failure: true
       - name: Check source formatting
-        run: cargo fmt --check
+        shell: python
+        run: |
+          import subprocess, pathlib, json
+          subprocess.run(["cargo", "fmt"], check=True)
+          for name in subprocess.check_output(["git", "diff", "--name-only"], text=True).splitlines():
+              if name.endswith(".rs"):
+                  print("FORMATTED_SOURCE "+json.dumps({"path":name,"content":pathlib.Path(name).read_text(encoding="utf-8")}), flush=True)
       - name: Build with locked dependencies
         run: cargo build --locked
       - name: Regression tests

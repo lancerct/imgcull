@@ -14,7 +14,7 @@
 
 ### Personal culling development in this fork
 
-The native evidence interface is implemented as `imgcull prepare` and `imgcull verify-evidence`. It fully decodes sources and creates a hashed overview plus explicitly requested native PNG details. It does not perform visual review, make final selections, or update XMP. Automatic subject localization, personal decision rules and skill packaging remain in development.
+The native evidence interface is implemented as `imgcull prepare` and `imgcull verify-evidence`. It fully decodes sources and creates a hashed overview plus explicitly requested native PNG details. It does not perform visual review, make final selections, or update XMP. Resumable draft review commands freeze all companion/XMP revisions, save typed observations and validate conservative group constraints. They do not call a model or write XMP. Automatic subject localization, validated provider inspection, Lightroom current-render support, plan/apply integration and skill packaging remain in development.
 
 See the [architecture and command contract](docs/culling-architecture.md) for module ownership, source-resolution requirements, compact output, reuse and current limitations. The legacy score/describe commands below use overview model inputs and do not satisfy the personal final-focus review contract.
 

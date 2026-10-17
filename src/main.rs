@@ -53,6 +53,28 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Commands::Rollback { transaction } => imgcull::metadata_transaction::rollback(&transaction),
+        Commands::ReviewInit { paths, output } => {
+            println!("{}", serde_json::to_string(&imgcull::review::create(&paths, &output)?)?);
+            Ok(())
+        }
+        Commands::ReviewStatus { directory } => {
+            println!("{}", serde_json::to_string(&imgcull::review::status(&directory)?)?);
+            Ok(())
+        }
+        Commands::ReviewList { directory, offset, limit } => {
+            println!("{}", serde_json::to_string(&imgcull::review::page(&directory, offset, limit)?)?);
+            Ok(())
+        }
+        Commands::RecordReview { directory, expected_revision, photo_id, evidence, observation } => {
+            anyhow::ensure!(std::fs::metadata(&observation)?.len() <= 512 * 1024, "oversized observation");
+            let observation = serde_json::from_slice(&std::fs::read(observation)?)?;
+            println!("{}", serde_json::to_string(&imgcull::review::record(&directory, expected_revision, &photo_id, &evidence, observation)?)?);
+            Ok(())
+        }
+        Commands::ReviewCheck { directory } => {
+            println!("{}", serde_json::to_string(&imgcull::review::check(&directory)?)?);
+            Ok(())
+        }
     }
 }
 
