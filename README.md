@@ -12,13 +12,19 @@
 
 ## 🔍 Why imgcull?
 
-After a shoot, photographers face hundreds (or thousands) of raw files to review. Manual culling is slow and subjective. imgcull uses vision-capable LLMs to evaluate each image across technical and aesthetic dimensions — sharpness, exposure, composition, subject clarity, aesthetics — and writes scores and descriptions into the `.xmp` sidecar files that Lightroom already reads. Your star ratings and captions appear automatically in your library, without touching the original files.
+### Personal culling development in this fork
+
+The native evidence interface is implemented as `imgcull prepare` and `imgcull verify-evidence`. It fully decodes sources and creates a hashed overview plus explicitly requested native PNG details. It does not perform visual review, make final selections, or update XMP. Automatic subject localization, personal decision rules and skill packaging remain in development.
+
+See the [architecture and command contract](docs/culling-architecture.md) for module ownership, source-resolution requirements, compact output, reuse and current limitations. The legacy score/describe commands below use overview model inputs and do not satisfy the personal final-focus review contract.
+
+After a shoot, photographers face hundreds (or thousands) of raw files to review. imgcull's legacy commands ask vision LLMs for overview scores/descriptions and store results in XMP sidecars, preserving existing human ratings and captions. Lightroom may require **Read Metadata from File** to display changes; independently imported JPEG metadata synchronization is not implemented in this fork yet.
 
 ## ✨ Features
 
 - **Multi-provider support** — Claude (Anthropic), OpenAI GPT-5, Gemini, and local models via Ollama
 - **XMP-native output** — scores and descriptions are written to `.xmp` sidecar files; existing Lightroom metadata (collections, color labels, crops) is preserved
-- **Non-destructive** — never modifies original image files; optional `.xmp.bak` backup before any update
+- **Non-destructive** — original image pixels are unchanged; XMP updates always record independent recovery snapshots, with an optional first-version `.xmp.bak`
 - **Five scoring dimensions** — sharpness, exposure, composition, subject clarity, aesthetics, averaged into an overall 0.00–1.00 score mapped to a 1–5 star rating
 - **Parallel processing** — bounded concurrency with configurable worker count for fast batch runs
 - **Dry-run mode** — preview which files would be processed without making any LLM calls or file writes
@@ -36,7 +42,7 @@ Built with **Rust** (edition 2024), **Tokio** (async runtime), **Rig** (LLM prov
 ### Prerequisites
 
 - An API key for at least one supported provider, **or** a running [Ollama](https://ollama.ai) instance for local inference
-- (Only if building from source) Rust `>=` 1.85 (edition 2024)
+- (Only if building from source) Rust `>=` 1.89 (edition 2024; dependencies may require a newer toolchain, CI uses stable)
 
 ### Install from the GitHub release (recommended)
 

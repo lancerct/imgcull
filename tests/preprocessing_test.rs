@@ -43,11 +43,10 @@ fn test_preprocess_large_jpeg_resizes() {
     );
 }
 
-/// A JPEG already within the 2048px limit must be passed through with its
-/// original bytes — no decode → re-encode round trip (which costs CPU and
-/// loses quality to JPEG re-compression).
+/// Even small sources pass through the shared full decoder, with normalized
+/// orientation and metadata-free overview encoding.
 #[test]
-fn test_preprocess_small_jpeg_passes_through_original_bytes() {
+fn test_preprocess_small_jpeg_is_fully_decoded() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("gradient.jpg");
     // Gradient content so a lossy re-encode cannot accidentally reproduce
@@ -58,11 +57,12 @@ fn test_preprocess_small_jpeg_passes_through_original_bytes() {
     img.save(&path).unwrap();
 
     let result = preprocess_image(&path).unwrap();
-    let original = std::fs::read(&path).unwrap();
+    let bytes = base64::prelude::BASE64_STANDARD
+        .decode(&result.base64)
+        .unwrap();
     assert_eq!(
-        result.base64,
-        base64::prelude::BASE64_STANDARD.encode(&original),
-        "in-range JPEG should be base64 of the untouched file bytes"
+        image::load_from_memory(&bytes).unwrap().dimensions(),
+        (800, 600)
     );
     assert!(!result.was_resized);
 }

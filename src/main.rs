@@ -34,6 +34,24 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Commands::Init => run_init(),
+        Commands::Prepare(args) => {
+            let regions = match args.regions {
+                Some(path) => serde_json::from_slice(&std::fs::read(path)?)?,
+                None => Vec::new(),
+            };
+            let evidence =
+                imgcull::evidence::prepare(&args.photo, &args.output, &regions, args.min_pixels)?;
+            println!(
+                "{}",
+                serde_json::to_string(&evidence.summary(&args.output))?
+            );
+            Ok(())
+        }
+        Commands::VerifyEvidence { directory } => {
+            let evidence = imgcull::evidence::verify(&directory)?;
+            println!("{}", serde_json::to_string(&evidence.summary(&directory))?);
+            Ok(())
+        }
         Commands::Rollback { transaction } => imgcull::metadata_transaction::rollback(&transaction),
     }
 }

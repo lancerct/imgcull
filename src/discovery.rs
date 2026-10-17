@@ -5,6 +5,26 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// One shared mapping from an image path to its XMP target.
+pub fn sidecar_for_image(path: &Path) -> PathBuf {
+    path.with_extension("xmp")
+}
+
+/// Canonical photo key, shared by RAW/JPEG scheduling and evidence manifests.
+/// The sidecar itself need not exist. Windows keys are case-insensitive.
+pub fn photo_key(path: &Path) -> anyhow::Result<PathBuf> {
+    let canonical = path.canonicalize()?;
+    let target = sidecar_for_image(&canonical);
+    #[cfg(windows)]
+    let target = PathBuf::from(
+        target
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("non-Unicode path"))?
+            .to_lowercase(),
+    );
+    Ok(target)
+}
+
 /// One writer per sidecar. RAW is the identity; a same-stem JPEG is its review source.
 /// Multiple RAWs with the same stem are ambiguous and abort before any writes.
 pub fn deduplicate_images(images: Vec<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
@@ -16,14 +36,7 @@ pub fn deduplicate_images(images: Vec<PathBuf>) -> anyhow::Result<Vec<PathBuf>> 
             "refusing linked image"
         );
         let canonical = path.canonicalize()?;
-        let target = canonical.with_extension("xmp");
-        #[cfg(windows)]
-        let target = PathBuf::from(
-            target
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("non-Unicode path"))?
-                .to_lowercase(),
-        );
+        let target = photo_key(&canonical)?;
         groups.entry(target).or_default().insert(canonical);
     }
     let mut result = Vec::new();

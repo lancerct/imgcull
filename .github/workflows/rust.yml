@@ -1,7 +1,6 @@
 name: Rust
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 permissions:
@@ -33,3 +32,7 @@ jobs:
       - name: Lint
         if: ${{ !cancelled() }}
         run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Build API documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --no-deps

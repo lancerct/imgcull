@@ -23,11 +23,34 @@ pub enum Commands {
     Report(ReportArgs),
     /// Create default config files
     Init,
+    /// Prepare immutable overview and native-pixel evidence without scoring or XMP writes.
+    Prepare(PrepareArgs),
+    /// Verify a prepared bundle before reuse.
+    VerifyEvidence {
+        /// Directory containing evidence.json.
+        directory: PathBuf,
+    },
     /// Undo a metadata transaction, refusing to overwrite subsequent edits.
     Rollback {
         /// Path to .imgcull/transactions/change-*/transaction.json.
         transaction: PathBuf,
     },
+}
+
+/// Inputs to full-resolution evidence preparation.
+#[derive(clap::Args, Debug)]
+pub struct PrepareArgs {
+    /// Photo identity (prefer RAW when a RAW/JPEG pair exists).
+    pub photo: PathBuf,
+    /// A new output directory; existing evidence is immutable.
+    #[arg(long)]
+    pub output: PathBuf,
+    /// JSON array of detail requests in normalized native pixel coordinates.
+    #[arg(long)]
+    pub regions: Option<PathBuf>,
+    /// Minimum decoded native area (45MP default for this user's 45MP camera).
+    #[arg(long, default_value_t = 45_000_000)]
+    pub min_pixels: u64,
 }
 
 /// Arguments for the report subcommand.
