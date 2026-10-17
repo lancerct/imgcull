@@ -17,7 +17,10 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::VerifyLightroomExport { directory } => {
-            println!("{}", serde_json::to_string(&imgcull::lightroom::verify(&directory)?)?);
+            println!(
+                "{}",
+                serde_json::to_string(&imgcull::lightroom::verify(&directory)?)?
+            );
             Ok(())
         }
         Commands::Score(args) => run_process(args, false).await,

@@ -72,13 +72,19 @@ pub struct Summary {
 
 fn regular(path: &Path, limit: u64) -> Result<()> {
     let meta = fs::symlink_metadata(path)?;
-    ensure!(meta.is_file() && !meta.file_type().is_symlink() && meta.len() > 0 && meta.len() <= limit,
-        "invalid/oversized LR export file: {}", path.display());
+    ensure!(
+        meta.is_file() && !meta.file_type().is_symlink() && meta.len() > 0 && meta.len() <= limit,
+        "invalid/oversized LR export file: {}",
+        path.display()
+    );
     Ok(())
 }
 
 fn hash(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn text(value: &str) -> bool {
@@ -87,8 +93,8 @@ fn text(value: &str) -> bool {
 
 fn dimensions(width: u32, height: u32, image: &Rendition) -> bool {
     let near = |a: u32, b: u32| a.abs_diff(b) <= 1;
-    (near(width, image.cropped_width) && near(height, image.cropped_height)) ||
-        (near(width, image.cropped_height) && near(height, image.cropped_width))
+    (near(width, image.cropped_width) && near(height, image.cropped_height))
+        || (near(width, image.cropped_height) && near(height, image.cropped_width))
 }
 
 /// Validate every file, source revision and full decoded rendition dimensions.
@@ -97,32 +103,84 @@ fn dimensions(width: u32, height: u32, image: &Rendition) -> bool {
 /// This checks saved artifacts, not live LR state, semantic quality or ICC fidelity.
 pub fn verify(directory: &Path) -> Result<Summary> {
     let meta = fs::symlink_metadata(directory)?;
-    ensure!(meta.is_dir() && !meta.file_type().is_symlink(), "invalid LR export directory");
+    ensure!(
+        meta.is_dir() && !meta.file_type().is_symlink(),
+        "invalid LR export directory"
+    );
     let root = directory.canonicalize()?;
     let path = root.join("manifest.json");
     regular(&path, 2 * 1024 * 1024)?;
     let bytes = fs::read(&path)?;
     let manifest: Manifest = serde_json::from_slice(&bytes)?;
-    ensure!(manifest.schema == 1 && manifest.exporter == "imgcull-lr-v1", "unsupported LR export contract");
-    ensure!(manifest.catalog.is_absolute() && text(&manifest.lightroom_version), "missing catalog/version identity");
-    ensure!((1..=10).contains(&manifest.images.len()), "trial LR export must contain 1..=10 photos");
+    ensure!(
+        manifest.schema == 1 && manifest.exporter == "imgcull-lr-v1",
+        "unsupported LR export contract"
+    );
+    ensure!(
+        manifest.catalog.is_absolute() && text(&manifest.lightroom_version),
+        "missing catalog/version identity"
+    );
+    ensure!(
+        (1..=10).contains(&manifest.images.len()),
+        "trial LR export must contain 1..=10 photos"
+    );
     let mut ids = BTreeSet::new();
     for (index, image) in manifest.images.iter().enumerate() {
-        ensure!(text(&image.photo_uuid) && text(&image.local_identifier) && ids.insert(&image.photo_uuid), "missing/duplicate LR identity");
-        ensure!(image.source.is_absolute() && hash(&image.source_sha256) && hash(&image.develop_sha256) && hash(&image.sha256), "invalid LR source/fingerprint");
-        ensure!(image.last_edit_time.is_finite() && image.last_edit_time >= 0.0 && image.cropped_width > 0 && image.cropped_height > 0, "invalid LR edit state/dimensions");
-        ensure!(image.file == format!("render-{:04}.jpg", index + 1), "unsafe/unexpected rendition filename");
+        ensure!(
+            text(&image.photo_uuid)
+                && text(&image.local_identifier)
+                && ids.insert(&image.photo_uuid),
+            "missing/duplicate LR identity"
+        );
+        ensure!(
+            image.source.is_absolute()
+                && hash(&image.source_sha256)
+                && hash(&image.develop_sha256)
+                && hash(&image.sha256),
+            "invalid LR source/fingerprint"
+        );
+        ensure!(
+            image.last_edit_time.is_finite()
+                && image.last_edit_time >= 0.0
+                && image.cropped_width > 0
+                && image.cropped_height > 0,
+            "invalid LR edit state/dimensions"
+        );
+        ensure!(
+            image.file == format!("render-{:04}.jpg", index + 1),
+            "unsafe/unexpected rendition filename"
+        );
         let file = root.join(&image.file);
         regular(&file, 512 * 1024 * 1024)?;
         regular(&image.source, 512 * 1024 * 1024)?;
-        ensure!(integrity::file_digest(&image.source)? == image.source_sha256, "LR source changed after export");
+        ensure!(
+            integrity::file_digest(&image.source)? == image.source_sha256,
+            "LR source changed after export"
+        );
         let photo = NativePhoto::load(&file, 0)?;
-        ensure!(photo.info.source_sha256 == image.sha256, "LR rendition changed");
-        ensure!(dimensions(photo.info.width, photo.info.height, image), "LR output does not match full current crop dimensions");
-        ensure!(integrity::file_digest(&image.source)? == image.source_sha256, "LR source changed during verification");
+        ensure!(
+            photo.info.source_sha256 == image.sha256,
+            "LR rendition changed"
+        );
+        ensure!(
+            dimensions(photo.info.width, photo.info.height, image),
+            "LR output does not match full current crop dimensions"
+        );
+        ensure!(
+            integrity::file_digest(&image.source)? == image.source_sha256,
+            "LR source changed during verification"
+        );
     }
-    ensure!(fs::read(&path)? == bytes, "LR manifest changed during verification");
-    Ok(Summary { manifest_sha256: integrity::digest(&bytes), images: manifest.images.len(),
+    ensure!(
+        fs::read(&path)? == bytes,
+        "LR manifest changed during verification"
+    );
+    Ok(Summary {
+        manifest_sha256: integrity::digest(&bytes),
+        images: manifest.images.len(),
         virtual_copies: manifest.images.iter().filter(|i| i.is_virtual_copy).count(),
-        live_catalog_verified: false, can_apply: false, contains_visual_verdict: false })
+        live_catalog_verified: false,
+        can_apply: false,
+        contains_visual_verdict: false,
+    })
 }

@@ -21,7 +21,7 @@ local function hashFile(path)
         '文件为空或超过当前 512 MiB 限制')
     -- SDK readFile supports Unicode paths on Windows. Keep one source string
     -- at a time; this SDK provides no documented streaming file reader.
-    return Digest.SHA256.digest(File.readFile(path))
+    return (Digest.SHA256.digest(File.readFile(path))):lower()
 end
 
 local function snapshot(photo)
@@ -34,12 +34,14 @@ local function snapshot(photo)
     local count = photo:getRawMetadata('editCount')
     assert(type(dims) == 'table' and type(dims.width) == 'number' and type(dims.height) == 'number',
         '无法读取成片尺寸')
-    assert(type(edited) == 'number' and type(count) == 'number', '无法确认 Lightroom 编辑状态')
+    assert(dims.width > 0 and dims.height > 0, '成片尺寸无效')
+    assert(type(edited) == 'number' and edited >= 0 and edited < math.huge and
+        type(count) == 'number' and count >= 0 and count % 1 == 0, '无法确认 Lightroom 编辑状态')
     return {
         source = photo:getRawMetadata('path'),
         uuid = photo:getRawMetadata('uuid'),
         virtual = photo:getRawMetadata('isVirtualCopy') == true,
-        develop_sha256 = Digest.SHA256.digest(Codec.canonical(settings)),
+        develop_sha256 = (Digest.SHA256.digest(Codec.canonical(settings))):lower(),
         last_edit_time = edited,
         edit_count = count,
         cropped_width = math.floor(dims.width + 0.5),
@@ -74,6 +76,7 @@ function M.run(photos, catalog, root, progress)
     -- distinct; this plugin never decides that shared files share a verdict.
     local before, ids = {}, {}
     for index, photo in ipairs(photos) do
+        assert(not progress:isCanceled(), '已取消；未发布完整导出清单')
         assert(not photo:getRawMetadata('isVideo'), '试运行不处理视频')
         assert(photo:checkPhotoAvailability(), '原片不在线，不能只用智能预览')
         local state = snapshot(photo)
@@ -149,7 +152,8 @@ function M.run(photos, catalog, root, progress)
         local now = snapshot(photo)
         assert(now.develop_sha256 == before[index].develop_sha256 and
             now.last_edit_time == before[index].last_edit_time and now.edit_count == before[index].edit_count and
-            now.source == before[index].source and now.uuid == before[index].uuid and now.virtual == before[index].virtual,
+            now.source == before[index].source and now.uuid == before[index].uuid and now.virtual == before[index].virtual and
+            now.cropped_width == before[index].cropped_width and now.cropped_height == before[index].cropped_height,
             '导出完成前检测到编辑变化；没有发布完整清单')
         assert(hashFile(now.source) == before[index].source_sha256, '导出完成前原片发生变化')
     end

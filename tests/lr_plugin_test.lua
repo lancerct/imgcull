@@ -139,6 +139,12 @@ test('virtual copies stay separate and duplicate LR identities fail', function()
     local c, other = fresh(); b.metadata.uuid = c.metadata.uuid
     assert(not pcall(Exporter.run, { c, b }, catalog, other, progress)); assert(not dirs[other])
 end)
+test('late crop-dimension changes are held even without an edit-counter increment', function()
+    local a, root = fresh(); local b = photo(997, '/synthetic/late-crop.JPG')
+    hook = function(frame) if frame == b then a.metadata.croppedDimensions.width = 39 end end
+    assert(not pcall(Exporter.run, { a, b }, catalog, root, progress))
+    assert(not files[root .. '/manifest.json'])
+end)
 test('settings order is canonical, cycles/sparse arrays/NaN are refused', function()
     assert(Codec.canonical({ a = 1, b = 2 }) == Codec.canonical({ b = 2, a = 1 }))
     local cycle = {}; cycle.self = cycle
