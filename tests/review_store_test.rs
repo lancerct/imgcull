@@ -66,6 +66,176 @@ fn observation(evidence: &Evidence) -> Observation {
     }
 }
 
+fn redundant(keeper: &str) -> Proposal {
+    Proposal::Redundant {
+        comparison: policy::Comparison {
+            keeper: keeper.into(),
+            content: policy::ContentRelation::Equivalent,
+            quality: policy::AlternativeQuality::Equivalent,
+            reason: "Same useful dish/composition; a verified equally good keeper is sufficient"
+                .into(),
+        },
+    }
+}
+
+#[test]
+fn equal_good_table_frames_allow_redundancy_without_low_artistic_score() {
+    let root = TempDir::new().unwrap();
+    let (_, _, evidence, _) = setup(root.path());
+    let mut a = observation(&evidence);
+    a.sequence = SequenceKind::Burst;
+    a.artistic_score = Some(8);
+    a.proposal = Proposal::Retain {
+        stars: Some(4),
+        green: false,
+    };
+    let mut b = a.clone();
+    b.proposal = redundant("a");
+    assert!(
+        policy::group_blockers(&[("a", &a), ("b", &b)])
+            .unwrap()
+            .is_empty()
+    );
+    let v = policy::validate(&b, &evidence).unwrap();
+    // The new redundancy reason is valid structurally; missing LR-current
+    // appearance still holds it. No caller flag bypasses that separate gate.
+    assert_eq!(v.blockers, vec!["lightroom_current_appearance_unavailable"]);
+    b.artistic_score = None;
+    assert_eq!(
+        policy::validate(&b, &evidence).unwrap().blockers,
+        v.blockers
+    );
+}
+
+#[test]
+fn redundancy_does_not_cross_distinct_moments_or_unique_record_value() {
+    let root = TempDir::new().unwrap();
+    let (_, _, evidence, _) = setup(root.path());
+    let mut o = observation(&evidence);
+    o.sequence = SequenceKind::Burst;
+    o.proposal = redundant("keeper");
+    if let Proposal::Redundant { comparison } = &mut o.proposal {
+        comparison.content = policy::ContentRelation::Distinct;
+    }
+    assert!(
+        policy::validate(&o, &evidence)
+            .unwrap()
+            .blockers
+            .contains(&"distinct_or_unresolved_content".into())
+    );
+    o.proposal = redundant("keeper");
+    o.record_value = true;
+    assert!(
+        policy::validate(&o, &evidence)
+            .unwrap()
+            .blockers
+            .contains(&"unique_record_value".into())
+    );
+}
+
+#[test]
+fn redundant_alternative_must_be_retained_sound_and_same_group() {
+    let root = TempDir::new().unwrap();
+    let (_, _, evidence, _) = setup(root.path());
+    let mut a = observation(&evidence);
+    a.sequence = SequenceKind::Burst;
+    a.proposal = Proposal::Retain {
+        stars: None,
+        green: false,
+    };
+    let mut b = a.clone();
+    b.proposal = redundant("a");
+    a.technical_failure = Some("Severe subject defocus".into());
+    assert!(
+        !policy::group_blockers(&[("a", &a), ("b", &b)])
+            .unwrap()
+            .is_empty()
+    );
+    a.technical_failure = None;
+    a.group = "other".into();
+    assert!(
+        !policy::group_blockers(&[("a", &a), ("b", &b)])
+            .unwrap()
+            .is_empty()
+    );
+    a.group = b.group.clone();
+    a.proposal = redundant("b");
+    assert!(
+        !policy::group_blockers(&[("a", &a), ("b", &b)])
+            .unwrap()
+            .is_empty()
+    );
+    b.proposal = redundant("b");
+    assert!(!policy::group_blockers(&[("b", &b)]).unwrap().is_empty());
+}
+
+#[test]
+fn redundancy_keeps_protection_and_native_coverage_requirements() {
+    let root = TempDir::new().unwrap();
+    let (_, _, evidence, _) = setup(root.path());
+    let mut o = observation(&evidence);
+    o.proposal = redundant("keeper");
+    for kind in [
+        SequenceKind::AstroStack,
+        SequenceKind::Bracket,
+        SequenceKind::Panorama,
+        SequenceKind::Unknown,
+    ] {
+        o.sequence = kind;
+        assert!(
+            policy::validate(&o, &evidence)
+                .unwrap()
+                .blockers
+                .contains(&"protected_or_unknown_sequence".into())
+        );
+    }
+    o.sequence = SequenceKind::Burst;
+    o.inspection = Inspection::ModelUnverified;
+    o.uncertain = true;
+    let blockers = policy::validate(&o, &evidence).unwrap().blockers;
+    assert!(blockers.contains(&"native_inspection_unverified".into()));
+    assert!(blockers.contains(&"uncertain".into()));
+}
+
+#[test]
+fn changed_policy_refuses_to_reinterpret_an_old_job() {
+    let root = TempDir::new().unwrap();
+    let (job, _, _, _) = setup(root.path());
+    let manifest = job.join("job.json");
+    let mut old: serde_json::Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    old["schema"] = 1.into();
+    old["policy_version"] = 1.into();
+    old.as_object_mut().unwrap().remove("calibration");
+    let bytes = serde_json::to_vec(&old).unwrap();
+    fs::write(&manifest, &bytes).unwrap();
+    let error = review::status(&job).unwrap_err().to_string();
+    assert!(error.contains("create a new job deliberately"));
+    assert_eq!(fs::read(&manifest).unwrap(), bytes);
+}
+
+#[test]
+fn comparison_report_is_escaped_immutable_and_never_writes_xmp() {
+    let root = TempDir::new().unwrap();
+    let (job, bundle, evidence, id) = setup(root.path());
+    let mut o = observation(&evidence);
+    o.reason = "<script>alert('not executable')</script>".into();
+    o.group = "<img src=x onerror=alert(1)>".into();
+    o.proposal = redundant(&id);
+    o.sequence = SequenceKind::Burst;
+    review::record(&job, 0, &id, &bundle, o).unwrap();
+    let output = root.path().join("report.html");
+    review::write_report(&job, &output, 0, 50).unwrap();
+    let report = fs::read_to_string(&output).unwrap();
+    assert!(!report.contains("<script>"));
+    assert!(report.contains("&lt;script&gt;"));
+    assert!(report.contains("data:image/jpeg;base64,"));
+    assert!(report.contains("尚未接通 Lightroom"));
+    assert!(report.contains("保留替代"));
+    assert!(review::write_report(&job, &output, 0, 50).is_err());
+    assert!(!root.path().join("photo.xmp").exists());
+    assert_eq!(review::status(&job).unwrap().revision, 1);
+}
+
 #[test]
 fn checkpoint_survives_reload_and_stale_worker_cannot_overwrite() {
     let root = TempDir::new().unwrap();

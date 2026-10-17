@@ -15,6 +15,58 @@ pub struct Cli {
 /// Available subcommands.
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    /// Publish a new immutable personal preference/correction revision.
+    CalibrationPublish {
+        input: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Retrieve bounded teaching context; withheld validation answers stay out.
+    CalibrationContext {
+        profile: PathBuf,
+        #[arg(long, required = true, num_args = 1..)]
+        tags: Vec<String>,
+    },
+    /// Compare independently generated decisions against a complete case split.
+    CalibrationEvaluate {
+        profile: PathBuf,
+        predictions: PathBuf,
+        #[arg(long, value_enum, default_value = "validation")]
+        split: crate::calibration::Split,
+    },
+    /// Export bounded evaluation questions without old labels or answer fields.
+    CalibrationChallenge {
+        profile: PathBuf,
+        #[arg(long, value_enum, default_value = "validation")]
+        split: crate::calibration::Split,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+    },
+    /// Propose pairs for review; never discard or choose a keeper by hash.
+    SuggestSimilar {
+        #[arg(required = true, num_args = 2..)]
+        bundles: Vec<PathBuf>,
+        #[arg(long, default_value_t = 6)]
+        distance: u32,
+    },
+    /// Scene context from the job's frozen personal preference revision.
+    ReviewContext {
+        directory: PathBuf,
+        #[arg(long, required = true, num_args = 1..)]
+        tags: Vec<String>,
+    },
+    /// Write a draft comparison report with keeper relations and hold reasons.
+    ReviewReport {
+        directory: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
     /// Fully verify trial LR current-effect exports; no visual verdict or metadata writes.
     VerifyLightroomExport { directory: PathBuf },
     /// Analyze images: generate descriptions and quality scores
@@ -43,6 +95,9 @@ pub enum Commands {
         /// Native decoded area required by this job; lower explicitly for older cameras.
         #[arg(long, default_value_t = crate::imaging::DEFAULT_MIN_PIXELS)]
         min_pixels: u64,
+        /// Published immutable preferences; copied into this job at creation.
+        #[arg(long)]
+        calibration: Option<PathBuf>,
     },
     /// Compact recorded/pending progress; does not certify current sources.
     ReviewStatus { directory: PathBuf },

@@ -6,7 +6,58 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 /// Versioned user policy, stored with every review job.
-pub const POLICY_VERSION: u32 = 1;
+pub const POLICY_VERSION: u32 = 2;
+
+/// Meaningful content differences, not a perceptual-hash threshold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentRelation {
+    /// Same useful moment, composition and documentary content.
+    Equivalent,
+    /// A worthwhile different pose, behavior, angle or detail.
+    Distinct,
+    /// Semantic comparison is incomplete.
+    Unknown,
+}
+
+/// Quality of the retained alternative relative to this frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlternativeQuality {
+    /// A demonstrably stronger alternative.
+    Better,
+    /// No meaningful quality advantage either way; one can represent both.
+    Equivalent,
+    /// The proposed alternative loses useful quality.
+    Worse,
+    /// Native detail/current appearance comparison is incomplete.
+    Unknown,
+}
+
+/// Explicit semantic comparison. Similarity metrics cannot create this verdict.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Comparison {
+    /// Explicitly retained member of the same reviewed burst.
+    pub keeper: String,
+    /// Whether any meaningful content would be lost.
+    pub content: ContentRelation,
+    /// Quality of the retained alternative; numerical scores need not differ.
+    pub quality: AlternativeQuality,
+    /// Concrete explanation of equivalence and the keeper choice.
+    pub reason: String,
+}
+
+impl Comparison {
+    /// Semantic precondition only; peer retention and evidence are checked separately.
+    pub fn supports_redundancy(&self) -> bool {
+        self.content == ContentRelation::Equivalent
+            && matches!(
+                self.quality,
+                AlternativeQuality::Better | AlternativeQuality::Equivalent
+            )
+    }
+}
 
 /// Sequence membership must be established before automatic deletion advice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +120,11 @@ pub enum Proposal {
     Red {
         /// Another retained photo in the same burst, if claiming redundancy.
         replacement: Option<String>,
+    },
+    /// Red deletion advice for redundancy, independent of artistic score.
+    Redundant {
+        /// Comparison against a retained, non-defective alternative.
+        comparison: Comparison,
     },
 }
 
@@ -201,10 +257,33 @@ pub fn validate(observation: &Observation, evidence: &Evidence) -> Result<Valida
             Proposal::Leave => false,
             Proposal::Retain { stars, green } => stars.is_some() || green,
             Proposal::Red { .. } => observation.technical_failure.is_none(),
+            Proposal::Redundant { .. } => true,
         };
         hold(needs_appearance, "lightroom_current_appearance_unavailable");
     }
     match &observation.proposal {
+        Proposal::Redundant { comparison } => {
+            ensure!(
+                note(&comparison.keeper) && note(&comparison.reason),
+                "invalid comparison"
+            );
+            hold(observation.record_value, "unique_record_value");
+            hold(
+                observation.sequence != SequenceKind::Burst,
+                "redundancy_requires_reviewed_burst",
+            );
+            hold(
+                comparison.content != ContentRelation::Equivalent,
+                "distinct_or_unresolved_content",
+            );
+            hold(
+                !matches!(
+                    comparison.quality,
+                    AlternativeQuality::Better | AlternativeQuality::Equivalent
+                ),
+                "alternative_quality_unresolved_or_worse",
+            );
+        }
         Proposal::Leave => (),
         Proposal::Retain { green, .. } => {
             hold(
@@ -247,6 +326,24 @@ pub fn group_blockers(members: &[(&str, &Observation)]) -> Result<Vec<String>> {
             .iter()
             .filter(|(_, other)| other.group == observation.group)
             .collect();
+        if let Proposal::Redundant { comparison } = &observation.proposal {
+            let valid = observation.sequence == SequenceKind::Burst
+                && !observation.uncertain
+                && !observation.record_value
+                && comparison.supports_redundancy()
+                && peers.iter().any(|(peer_id, other)| {
+                    *peer_id == comparison.keeper
+                        && *peer_id != *id
+                        && matches!(other.proposal, Proposal::Retain { .. })
+                        && !other.uncertain
+                        && other.technical_failure.is_none()
+                });
+            if !valid {
+                blockers.insert(
+                    "redundancy_requires_equivalent_content_and_sound_retained_keeper".to_string(),
+                );
+            }
+        }
         ensure!(
             peers
                 .iter()

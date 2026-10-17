@@ -14,6 +14,8 @@
 
 ### Personal culling development in this fork
 
+Versioned personal corrections and comparison tools are documented in [calibration and comparison](docs/calibration-and-comparison.md): good near duplicates can receive separate redundancy advice, preferences/counterexamples are immutable and frozen per job, similarity only proposes pairs, and draft reports show the explicit keeper relation. These tools do not yet run automatic calibrated visual review or authorize markings. The example corpus tests decision contracts, not real-photo model accuracy.
+
 A thin Lightroom current-effect trial exporter is available in `lightroom/ImgCull.lrplugin`; see the [installation, trial and verification contract](docs/lightroom-export.md). The initial Lua export test requires no Rust installation. It does not yet bind renditions to review jobs or authorize metadata changes. The installer commands further below fetch upstream releases and do not include this fork's unmerged development work.
 
 The native evidence interface is implemented as `imgcull prepare` and `imgcull verify-evidence`. It fully decodes sources and creates a hashed overview plus explicitly requested native PNG details. It does not perform visual review, make final selections, or update XMP. Resumable draft review commands freeze all companion/XMP revisions, save typed observations and validate conservative group constraints. They do not call a model or write XMP. Automatic subject localization, validated provider inspection, Lightroom current-render support, plan/apply integration and skill packaging remain in development.
