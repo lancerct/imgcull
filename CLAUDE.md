@@ -1,97 +1,32 @@
-# CLAUDE.md
+# Contributor instructions
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This is one Rust engine. The future skill is a thin coordinator of typed commands.
+The architecture source of truth is [docs/culling-architecture.md](docs/culling-architecture.md).
+Read it when changing the personal culling workflow; do not copy module ownership or workflow rules into new scripts.
 
-Read docs/culling-architecture.md before changes to the personal culling workflow. It defines current module ownership, interfaces, iteration gates and incomplete stages. Its current module descriptions supersede historical descriptions below (notably the former string-based XMP merge and embedded-preview preprocessing).
+## Contracts
 
-## Build & Test Commands
+- discovery owns supported extensions, photo keys, sidecar mapping and RAW/JPEG pairing.
+- imaging owns full source decode, orientation and native crop coordinates. preprocessing is only an overview adapter.
+- evidence owns immutable materials and hashes, not visual verdicts or job status.
+- The future review store alone owns review/job progress. Policy validates observations before a plan can reach xmp and metadata_transaction.
+- integrity and storage provide shared hash/immutable-write primitives.
+- Native assets existing is not proof of completed focus inspection. Legacy overview score/describe is not the personal final-culling workflow.
+- Keep public interfaces small and documented. Add a shared abstraction for real repeated behavior, not speculative extension points.
+- Keep CLI output compact. Persist detailed evidence and progress; do not replay full histories or image base64 through every agent prompt.
+- Use synthetic test files. Never commit private photos, catalog data, real user paths, credentials or generated review bundles.
 
-```bash
-cargo build                          # Build the project
-cargo test                           # Run all unit + integration tests
-cargo test --test xmp_test           # Run a single test file
-cargo test test_preprocess_small     # Run a test by name substring
-cargo fmt                            # Format all code
-cargo clippy -- -D warnings          # Lint with zero-warning policy
-cargo doc --no-deps                  # Build docs (must produce zero warnings)
-```
+## Validation and version management
 
-**Before every commit**, run: `cargo fmt && cargo clippy -- -D warnings && cargo test`
+Use a feature branch and PR. Stack on an implemented dependency when needed; do not implement it again.
+Run cargo fmt --check, cargo build --locked, cargo test --locked --no-fail-fast,
+cargo clippy --locked --all-targets -- -D warnings, and cargo doc --locked --no-deps with RUSTDOCFLAGS="-D warnings".
+When the local toolchain is unavailable, validate the exact committed code in CI before marking ready; do not claim local testing.
+Test observable contracts and failure cases. Dry-run/prepare/verify must not mutate photograph pixels or XMP metadata.
+Every iteration must identify its interfaces, shared foundations reused, test evidence and incomplete end-to-end stages.
 
-## Architecture
+## Focused references
 
-imgcull is an async Rust CLI tool that sends images to vision LLMs for description and quality scoring, then writes results into XMP sidecar files compatible with Adobe Lightroom Classic.
-
-### Pipeline flow
-
-```
-CLI (clap) → File Discovery → Image Preprocessing → [Semaphore gate]
-  → LLM Description (2 total attempts) → LLM Scoring (3 total attempts)
-  → XMP Sidecar Merge/Write → Progress bar + Summary
-```
-
-### Key design decisions
-
-- **Legacy LLM calls**: description and scoring use separate provider traits. This describes score/describe, not a requirement to make two calls per image in the future typed personal-review workflow.
-- **Rig's `Extractor<T>` cannot handle multimodal input** (images + text). All scoring uses `Agent` prompt → parse JSON response. The `parse_scoring_result()` function in `llm.rs` handles both raw JSON and markdown-fenced JSON from LLMs.
-- **XMP merge, not overwrite**: When a sidecar already exists (e.g., from Lightroom), `write()` injects/replaces only imgcull-managed fields (`dc:description`, `xmp:Rating`, `imgcull:*`) and preserves all other XML content. The `raw_content` field on `XmpSidecar` stores the original file for merging.
-- **Dirty tracking**: `XmpSidecar` tracks whether any modifications were made. The pipeline skips backup+write for unchanged sidecars.
-- **Dry-run skips LLM client construction** entirely — handled in `main.rs` before `LlmClients::new()`, so no API keys are needed.
-- **Scoring precision**: The default scoring prompt requests 0.01 granularity and provides midpoint anchors (0.3, 0.5, 0.7) in each dimension's guideline, not just the extremes. This matters because weaker models (e.g. gemma3:27b) tend to quantize to 0.05 without the explicit instruction. Stronger models (gemma4:31b, Claude, GPT-5) follow it.
-- **Preprocess runs on `spawn_blocking`**: RAW decode + resize + JPEG encode is blocking work; wrapping it keeps tokio workers free for the concurrent LLM calls.
-
-### Module responsibilities
-
-- `main.rs` — Entry point. Uses `mod cli` (private). Orchestrates config loading, CLI overrides, and dispatches to pipeline, report, or init.
-- `cli.rs` — Private `clap` command/argument definitions used by `main.rs`.
-- `lib.rs` — Crate root. Re-exports all modules as `pub mod`. Contains `setup_logging()` with an internal ANSI-stripping writer to prevent ANSI contamination from the shared tracing registry span cache.
-- `llm.rs` — `DescriptionProvider` / `ScoringProvider` traits + 5 provider structs (one per backend, each implementing both traits). Each provider stores a pre-built Rig `Agent` bound to its preamble, so the underlying `reqwest` client and connection pool are reused across every LLM call.
-- `pipeline.rs` — `run_pipeline()` spawns a `tokio::spawn` per image, bounded by `Arc<Semaphore>`. Each task preprocesses (via `spawn_blocking`), calls LLMs with retry, writes XMP.
-- `preprocessing.rs` — legacy overview adapter over imaging; full decode is shared, then normalized JPEG overview encoding. Personal focus decisions additionally require native detail review.
-- `imaging.rs` — one full-resolution raster/RAW decoder, orientation normalization, overview and unscaled native crops.
-- `evidence.rs` — immutable, hashed evidence bundles and verification; never a photographic verdict or metadata writer.
-- `integrity.rs` and `storage.rs` — shared hash and immutable-write primitives; no application policy.
-- `discovery.rs` — Walks directories and filters by extension. `SUPPORTED_EXTENSIONS` is the single source of truth: `preprocessing::preprocess_image` treats `jpg`/`jpeg` as JPEG and every other entry as a rawler-handled RAW format.
-- `xmp.rs` — namespace-aware property edits preserving untouched bytes; metadata_transaction owns conflict checks, locks, journal and rollback.
-- `config.rs` — TOML config + prompts loading with defaults. `Config::default()` and `Prompts::default()` provide built-in fallbacks.
-- `scoring.rs` — `ScoringResult` struct with 5 hardcoded dimension fields (`Option<f64>`), an optional `critique` string, and optional `keywords` array. Derives `JsonSchema` for Rig compatibility. The canonical dimension set is exposed as `pub const DIMENSIONS: &[&str]` and consumed by `overall_score()`, `XmpSidecar::set_scores()`, and `Prompts::render_scoring_prompt()`.
-- `retry.rs` — Generic `retry_with_backoff(max_attempts, op)` used by the pipeline for both description and scoring LLM calls.
-- `summary.rs` — `RunSummary` with atomic counters aggregated across parallel tasks and a `display()` that prints the run summary to stderr.
-- `report.rs` — `run_report()` reads XMP sidecars (both image-paired and standalone `.xmp` files) and outputs a summary table or CSV to stdout. No LLM calls required.
-
-### Provider abstraction
-
-`LlmClients` holds two `Box<dyn DualProvider>` trait objects (`DualProvider: DescriptionProvider + ScoringProvider`). The `api_key_provider!` macro generates a struct + constructor for each API-key provider (Claude, OpenAI, Gemini, DeepSeek) and delegates the two trait impls to the shared `provider_impls!` macro. Ollama defines its struct + constructor manually (different builder) and reuses `provider_impls!`. The generated struct stores a pre-built `CompletionModel` (which holds the provider client) plus the preamble string, and exposes a `new(api_key, model, preamble) -> Result<Self>` constructor; call sites in `build_provider()` delegate to it. A single `build_provider()` function matches on provider name strings and returns the boxed trait object. Adding a new provider means: add a struct (or macro invocation), implement both traits, add a match arm in `build_provider()`. DeepSeek is wired up in `build_provider()` but intentionally not in `default_providers()` because DeepSeek has no public vision model — users who want it must add a `[providers.deepseek]` section manually.
-
-### Rig crate notes (rig-core 0.42)
-
-- rig-core 0.41 split the `Agent` abstraction into a separate `rig-agent` crate. imgcull does not use it: one-shot preamble + prompt requests go directly through `CompletionModel` — `client.completion_model(name)`, then `model.completion_request(msg).preamble(preamble).send().await`.
-- All providers: `Client::new(key)?` returns `Result<Client>` — must propagate with `?`
-- Anthropic: `rig::providers::anthropic::Client::new(&key)?`
-- OpenAI/Gemini/DeepSeek: `Client::new(&key)?`
-- Ollama: `Client::builder().api_key(Nothing).base_url(&url).build()?` (no API key)
-- `completion_model()` is on the `CompletionClient` trait — must be imported: `use rig::client::CompletionClient`
-- Image messages: `UserContent::image_base64(data, Some(ImageMediaType::JPEG), None)` (3 args)
-- User messages: `Message::User { content: Vec<UserContent> }` — `OneOrMany` is gone
-- Response text: `CompletionResponse::choice` is `Vec<AssistantContent>`; filter for `AssistantContent::Text` (reasoning models may emit other block types first)
-- Import paths: `rig::client::{CompletionClient, Nothing}`, `rig::completion::message::{AssistantContent, ImageMediaType, UserContent}`, `rig::completion::{CompletionModel, Message}`
-
-## Project conventions
-
-- **Rust 2024 edition** — uses `let chains` in `if` expressions, `is_none_or()`, etc.
-- **All public items require `///` doc comments** — verified by `cargo doc --no-deps` producing zero warnings.
-- **Integration tests live in `tests/`**, unit tests in `#[cfg(test)] mod tests` blocks within source files.
-- **API keys are never stored in config** — resolved from environment variables via `dotenvy`. The `api_key_env` field in provider config names the env var.
-- **Config precedence**: CLI flag > config file (`~/Library/Application Support/imgcull/config.toml`) > built-in default.
-
-## Git Workflow
-
-When asked to make changes and commit, always create a feature branch and open a PR unless explicitly told to commit directly to main.
-
-## Testing
-
-Always run `cargo build` and `cargo test` after making Rust code changes before committing.
-
-## Code Standards
-
-When implementing dry-run or preview modes, ensure no side effects occur — no network calls requiring credentials, no file writes that could destroy existing metadata.
+- [Provider implementation notes](docs/provider-implementation.md): provider traits, Rig 0.42 API details and legacy request behavior. Load only for transport changes.
+- [Metadata safety and recovery](docs/lightroom-metadata-safety.md): conflict checks, snapshots, rollback and Lightroom concurrency limits.
+- Rust 2024; configuration precedence is CLI > config file > defaults. API keys come from environment variables.
