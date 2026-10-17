@@ -25,7 +25,7 @@ The existing score/describe commands remain a legacy overview pipeline. Their ou
 - preprocessing is only a legacy provider payload adapter over imaging. It cannot keep its former second JPEG/RAW decoder.
 - evidence derives every requested view from one in-memory decode. Crop pixels are encoded as PNG without scaling or sharpening. Composition overview is capped at 2048px.
 - integrity owns SHA-256 of byte buffers and streamed files, shared by evidence and metadata recovery.
-- storage owns immutable-file creation and flush behavior, shared by evidence publication and transaction snapshots. Publication policy belongs to the caller.
+- storage owns immutable-file creation/flush and bounded regular-file control JSON reads, shared by evidence publication, transaction snapshots, review and calibration. Publication policy and schemas belong to callers.
 - xmp owns namespace-aware byte-preserving property edits. metadata_transaction alone owns metadata locking, conflict detection, backup and rollback.
 - llm owns provider transport. Prompts describe photographic judgment, not filesystem mechanics.
 - lightroom verifies trial current-effect exports with the existing full decoder and hashes. The thin Lua bridge delegates rendering to LR, without photo pairing, review progress, policy or XMP logic. Trial artifacts alone never unlock current-appearance review; see [LR export contract](lightroom-export.md).

@@ -1,6 +1,8 @@
 # Personal correction and comparison contract
 
 This iteration improves the existing Rust engine, not a second Python workflow.
+Calibration and review share storage's bounded regular-file JSON reader;
+individual modules own their schemas and byte limits rather than copy I/O logic.
 The LR plugin is unchanged. No private photo, screenshot, catalog or generated
 review data is committed. The example corpus is anonymized declarative material,
 not evidence that a model correctly inspected the user's originals.

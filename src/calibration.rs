@@ -9,7 +9,6 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
     path::Path,
 };
 
@@ -178,17 +177,7 @@ fn checksum(profile: &Profile) -> Result<String> {
 /// Read bounded regular-file control data. Unknown fields are rejected by the
 /// individual schemas, rather than silently accepting misspelled corrections.
 pub fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
-    let meta = fs::symlink_metadata(path)?;
-    ensure!(
-        meta.is_file() && !meta.file_type().is_symlink() && meta.len() <= MAX_BYTES,
-        "invalid/oversized calibration file"
-    );
-    let bytes = fs::read(path)?;
-    ensure!(
-        bytes.len() as u64 <= MAX_BYTES,
-        "calibration file grew beyond limit"
-    );
-    Ok(serde_json::from_slice(&bytes)?)
+    storage::read_json(path, MAX_BYTES)
 }
 
 fn validate_expected(e: &Expected, ids: &BTreeSet<&str>) -> Result<()> {

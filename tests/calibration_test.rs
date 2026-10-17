@@ -256,6 +256,16 @@ fn unknown_prediction_fields_are_not_silently_accepted() {
 }
 
 #[test]
+fn control_json_refuses_nonfiles_and_oversized_inputs() {
+    let root = TempDir::new().unwrap();
+    assert!(calibration::read_json::<serde_json::Value>(root.path()).is_err());
+    let oversized = root.path().join("oversized.json");
+    fs::write(&oversized, vec![b' '; calibration::MAX_BYTES as usize + 1]).unwrap();
+    assert!(calibration::read_json::<serde_json::Value>(&oversized).is_err());
+    assert_eq!(fs::metadata(&oversized).unwrap().len(), calibration::MAX_BYTES + 1);
+}
+
+#[test]
 fn real_case_evidence_references_are_optional_but_cannot_be_arbitrary_paths() {
     let root = TempDir::new().unwrap();
     let (_, mut p) = profile(root.path());

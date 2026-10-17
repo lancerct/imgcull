@@ -2,7 +2,7 @@
 //! No image/XMP mutation, model requests, or dependence on conversation history.
 use crate::{calibration, discovery, evidence, integrity, policy, storage};
 use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -141,15 +141,6 @@ struct Loaded {
     latest: BTreeMap<String, Checkpoint>,
 }
 
-fn read_json<T: DeserializeOwned>(path: &Path, limit: u64) -> Result<T> {
-    let meta = fs::symlink_metadata(path)?;
-    ensure!(
-        meta.is_file() && !meta.file_type().is_symlink() && meta.len() <= limit,
-        "invalid/oversized store file"
-    );
-    Ok(serde_json::from_slice(&fs::read(path)?)?)
-}
-
 fn xmp_hash(path: &Path) -> Result<Option<String>> {
     match fs::symlink_metadata(path) {
         Ok(meta) => {
@@ -214,7 +205,7 @@ fn store_root(directory: &Path) -> Result<PathBuf> {
 }
 
 fn load(directory: &Path) -> Result<Loaded> {
-    let job: Job = read_json(&directory.join("job.json"), 64 * 1024 * 1024)?;
+    let job: Job = storage::read_json(&directory.join("job.json"), 64 * 1024 * 1024)?;
     ensure!(
         job.schema == 2 && job.policy_version == policy::POLICY_VERSION,
         "unsupported review schema/policy; keep old job unchanged and create a new job deliberately"
@@ -255,7 +246,7 @@ fn load(directory: &Path) -> Result<Loaded> {
             path.file_name().unwrap() == format!("{revision:020}").as_str(),
             "checkpoint sequence gap"
         );
-        let checkpoint: Checkpoint = read_json(&path.join("record.json"), 512 * 1024)?;
+        let checkpoint: Checkpoint = storage::read_json(&path.join("record.json"), 512 * 1024)?;
         ensure!(
             checkpoint.schema == 1 && checkpoint.revision == revision && checkpoint.previous == tip,
             "checkpoint history mismatch"
