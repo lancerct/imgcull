@@ -1,10 +1,10 @@
 # imgcull
 
-> AI-powered image culling — score and describe your photos using vision LLMs, with results written directly to XMP sidecar files for Adobe Lightroom Classic.
+> AI-assisted image review and metadata tooling for Lightroom Classic. See the [current development status](docs/project-status.md) for the personal culling workflow and its remaining integration gates.
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/henrif75/imgcull#license)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/henrif75/imgcull/ci.yml?branch=main)](https://github.com/henrif75/imgcull/actions)
-[![Version](https://img.shields.io/badge/version-0.2.5-orange.svg)](https://github.com/henrif75/imgcull/releases)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/lancerct/imgcull/rust.yml?branch=main)](https://github.com/lancerct/imgcull/actions/workflows/rust.yml)
+[Development status and integration history](docs/project-status.md)
 
 ![imgcull — AI-powered image culling](docs/banner.svg)
 
@@ -14,11 +14,13 @@
 
 ### Personal culling development in this fork
 
+The implemented foundations from PRs #3–#7 are merged into `main`. See [current status and archived experiments](docs/project-status.md). The complete automatic personal workflow remains under development.
+
 Versioned personal corrections and comparison tools are documented in [calibration and comparison](docs/calibration-and-comparison.md): good near duplicates can receive separate redundancy advice, preferences/counterexamples are immutable and frozen per job, similarity only proposes pairs, and draft reports show the explicit keeper relation. These tools do not yet run automatic calibrated visual review or authorize markings. The example corpus tests decision contracts, not real-photo model accuracy.
 
-A thin Lightroom current-effect trial exporter is available in `lightroom/ImgCull.lrplugin`; see the [installation, trial and verification contract](docs/lightroom-export.md). The initial Lua export test requires no Rust installation. It does not yet bind renditions to review jobs or authorize metadata changes. The installer commands further below fetch upstream releases and do not include this fork's unmerged development work.
+A thin Lightroom current-effect trial exporter is available in `lightroom/ImgCull.lrplugin`; see the [installation, trial and verification contract](docs/lightroom-export.md). The initial Lua export test requires no Rust installation. It does not yet bind renditions to review jobs or authorize metadata changes. The installer commands further below fetch upstream releases and do not include this fork's personal culling additions in `main`.
 
-The native evidence interface is implemented as `imgcull prepare` and `imgcull verify-evidence`. It fully decodes sources and creates a hashed overview plus explicitly requested native PNG details. It does not perform visual review, make final selections, or update XMP. Resumable draft review commands freeze all companion/XMP revisions, save typed observations and validate conservative group constraints. They do not call a model or write XMP. Automatic subject localization, validated provider inspection, Lightroom current-render support, plan/apply integration and skill packaging remain in development.
+The native evidence interface is implemented as `imgcull prepare` and `imgcull verify-evidence`. It fully decodes sources and creates a hashed overview plus explicitly requested native PNG details. It does not perform visual review, make final selections, or update XMP. Resumable draft review commands freeze all companion/XMP revisions, save typed observations and validate conservative group constraints. They do not call a model or write XMP. Automatic subject localization, validated provider inspection, binding of Lightroom current renders to reviews, plan/apply integration and skill packaging remain in development.
 
 See the [architecture and command contract](docs/culling-architecture.md) for module ownership, source-resolution requirements, compact output, reuse and current limitations. The legacy score/describe commands below use overview model inputs and do not satisfy the personal final-focus review contract.
 
