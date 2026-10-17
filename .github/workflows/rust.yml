@@ -25,9 +25,22 @@ jobs:
           cache-on-failure: true
       - name: Check source formatting
         run: cargo fmt --check
+      - name: Install Lua 5.1 for plugin contracts
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y lua5.1
+      - name: Plugin syntax and SDK orchestration contracts
+        if: runner.os == 'Linux'
+        run: |
+          find lightroom/ImgCull.lrplugin -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+          mkdir -p target/lr-cross-language/export
+          lua5.1 tests/lr_plugin_test.lua "$GITHUB_WORKSPACE"
       - name: Build with locked dependencies
         run: cargo build --locked
       - name: Regression tests
+        env:
+          IMGCULL_LR_FIXTURE: ${{ github.workspace }}/target/lr-cross-language/export
         run: cargo test --locked --no-fail-fast
       - name: Lint
         if: ${{ !cancelled() }}
