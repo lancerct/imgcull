@@ -8,13 +8,13 @@ The product is one Rust engine with a thin future skill. The skill coordinates t
 |---|---|---|---|
 | Discover | discovery | requested paths → canonical photo identities; RAW/JPEG pairs share one target | filesystem reads |
 | Prepare evidence | imaging + evidence | identity + native regions + pixel floor → immutable evidence ID, overview, native PNG details | write a new evidence directory only |
-| Review | future typed review module; transport in llm | evidence ID + bounded views + group context → observations and uncertainty | append review records; no XMP |
-| Validate decisions | future policy module | observations + protection/group rules → explicit star/label proposals | no filesystem mutation |
-| Plan | future review store | proposals + existing human metadata + source/evidence hashes → reviewable change plan | persist plan; no XMP |
+| Review | review + policy types; future transport in llm | evidence ID + bounded views + group context → observations and uncertainty | append review records; no XMP |
+| Validate decisions | policy | observations + protection/group rules → held or structurally valid proposals | no filesystem mutation |
+| Plan | future integration over review | proposals + existing human metadata + source/evidence hashes → reviewable change plan | persist plan; no XMP |
 | Apply / rollback | xmp + metadata_transaction | validated plan → narrow XMP updates and recovery journal | metadata writes only |
 | Verify Lightroom | future integration | applied metadata + Lightroom display → mismatch report | explicit read/sync workflow |
 
-Only the future review store owns job/review status; evidence artifacts never duplicate or reset it. Preparing files is not a visual judgment. A native focus asset existing on disk does not prove a reviewer saw it or selected the right subject. Overview-only evidence must never be promoted to a final focus verdict.
+Only the review store owns job/review status; evidence artifacts never duplicate or reset it. Preparing files is not a visual judgment. A native focus asset existing on disk does not prove a reviewer saw it or selected the right subject. Overview-only evidence must never be promoted to a final focus verdict.
 
 The existing score/describe commands remain a legacy overview pipeline. Their output does not satisfy this personal native-detail review contract. Migration to the typed decision flow is a separate iteration; do not install a skill that treats legacy overview scores as final culling decisions.
 
@@ -68,4 +68,28 @@ Native geometry and focus samples do not certify calibrated color. RenderInfo re
 
 Provider image preprocessing can downsample even a native PNG crop. The future review transport must choose crop sizes compatible with the provider/model and record what was actually submitted; a 1024px file alone does not certify 1:1 model inspection. Unsupported RAW development fails rather than substituting a preview; library panics are contained as errors, without claiming protection against process-level out-of-memory aborts.
 
-Automatic subject-region proposals; actual native-detail model review and coverage records; burst/stack protection; user-calibrated 3/4/5-star and red/green policy; durable job progress and resumable review ledger; plan/apply integration; independent JPEG embedded metadata synchronization; Lightroom verification; and final skill packaging.
+Automatic subject-region proposals; actual native-detail model review and coverage records; burst/stack protection; user-calibrated 3/4/5-star and red/green policy; plan/apply integration; independent JPEG embedded metadata synchronization; Lightroom verification; and final skill packaging.
+
+
+## Resumable draft reviews
+
+```text
+imgcull review-init PHOTO_OR_DIRECTORY --output NEW_JOB --min-pixels 45000000
+imgcull review-list JOB --offset 0 --limit 50
+imgcull review-status JOB
+imgcull review-show JOB PHOTO_ID
+imgcull record-review JOB --expected-revision 0 --photo-id ID --evidence BUNDLE --observation JSON_FILE
+imgcull review-check JOB
+```
+
+review is the only progress store. It freezes logical identities, all physical same-stem companions, existing XMP hashes and the required decoded pixel floor, even for a JPEG-only input. Strict job discovery refuses partial results for missing/unreadable requested inputs, using the same shared walker as legacy discovery. Ambiguous multiple-RAW or multiple-JPEG companion sets fail before job publication. The job floor defaults to the same shared 45MP constant as prepare; a low-floor bundle cannot bypass a stricter job floor. It reuses discovery, integrity, storage, evidence and policy; there is no Python/skill database. A photo edited or supplemented since the freeze cannot receive a new checkpoint. Source/XMP changes require a deliberate fresh job for the changed inputs; automatic migration/rebasing is not implemented.
+
+Job and checkpoint checksums detect accidental mutation, not hostile forgery. Checkpoints form an ordered immutable hash chain rooted in job.json. Each record is flushed in a staging directory and published by rename while holding the job OS lock. A crash before publication leaves an ignored staging directory; after publication the checkpoint is recoverable. Stale expected revisions fail without overwriting work. Internal gaps, reordered entries and changed committed bytes fail instead of resetting progress. A hash chain cannot detect deletion of its entire trailing suffix without an independent trusted tip; this store does not claim protection against a person removing completed records or rewriting the complete store. This is a local-filesystem, cooperating-process contract, not a power-loss durability or distributed-store guarantee. Each short-lived CLI invocation currently scans committed checkpoint history; full-library throughput has not been benchmarked. A future long-running reviewer should reuse loaded state or amortize bounded batches rather than add a second authoritative database.
+
+status/list/show validate committed history and return compact progress or one latest draft, not evidence validity. Photo scheduling follows stable primary-path order, not random hash order; actual chronological burst grouping still needs EXIF/group analysis. review-check rehashes current companions/XMP, verifies each latest evidence bundle and reevaluates coverage and group constraints. It fails on stale or corrupt material. Its JSON diagnostic output can be large for a full job; ordinary scheduling should use bounded list pages and compact status, not repeat the full diagnostic report in every prompt. Recorded means a draft exists, never that visual review is complete. can_apply is always false in this stage.
+
+Observations declare reviewer identity, exact view IDs/hashes/submitted dimensions, native-inspection path, edge/background coverage, uncertainty, artistic score (0..10), unique record value, severe technical defects, sequence membership, concrete edits, explanation and proposal. Schemas reject unknown fields and out-of-range values. Observation text and view counts are bounded. Receipts are trusted reviewer declarations, not authenticated proof of what someone saw or of correct subject localization. ModelNative inspection has no accepted path until provider preprocessing has been validated; ModelUnverified stays held. HumanNative is only for explicit real 1:1 human inspection, never a label a model may assign itself.
+
+Personal stars are 3 (worth keeping/meaningful representative), 4 (independently presentable), 5 (exceptional), separate from artistic scores. Red requires a severe technical defect or artistic <=4 without unique record value; 5 requires a better explicitly retained comparable frame. Unselected is not red. Unknown, astro stacking, bracket and panorama groups are protected from automatic marking, including stars. Burst groups need a retained representative; any number of good distinct moments may be kept. Replacement claims must reference a better unambiguous keeper in the same burst; red cycles cannot satisfy them. Green requires concrete edit advice, and retention/red are mutually exclusive by type. Missing observations and group blockers must be resolved before a future plan can be built; group checks alone do not certify peer evidence or a complete correctly grouped sequence.
+
+The user chose **Lightroom's current developed appearance for artistic value**, and **original native pixels for technical inspection**. Existing camera JPEG/default RAW evidence cannot satisfy the first requirement. Current policy explicitly holds star/green/artistic-red proposals with lightroom_current_appearance_unavailable. Do not add a caller-controlled boolean to bypass this gate. A future rendition adapter must prove source/XMP linkage and correct current appearance. This stage validates draft observations; it does not implement automatic visual review, subject detection or final numerical calibration. It cannot authorize metadata writes, and legacy scoring must not be used as a shortcut around these gates.

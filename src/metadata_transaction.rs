@@ -3,7 +3,7 @@ use crate::integrity::digest;
 use crate::storage::write_new as snapshot;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -33,7 +33,7 @@ fn reject_link(path: &Path) -> Result<()> {
     }
     Ok(())
 }
-fn locked_target(path: &Path) -> Result<(PathBuf, File)> {
+fn locked_target(path: &Path) -> Result<(PathBuf, crate::storage::FileLock)> {
     ensure!(
         crate::discovery::has_extension(path, &["xmp"]),
         "metadata transaction target must be an XMP sidecar"
@@ -52,14 +52,7 @@ fn locked_target(path: &Path) -> Result<(PathBuf, File)> {
         .join(target.file_name().context("missing filename")?)
         .with_extension("xmp.lock");
     reject_link(&lock_path)?;
-    let lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(lock_path)?;
-    lock.try_lock()
-        .map_err(|e| anyhow::anyhow!("metadata target is locked: {e}"))?;
+    let lock = crate::storage::lock_file(&lock_path)?;
     Ok((target, lock))
 }
 fn atomic_replace(path: &Path, content: &[u8], must_be_absent: bool) -> Result<()> {

@@ -50,6 +50,11 @@ pub fn deduplicate_images(images: Vec<PathBuf>) -> anyhow::Result<Vec<PathBuf>> 
             "multiple RAW files share one XMP: {:?}",
             paths
         );
+        anyhow::ensure!(
+            paths.len() - raws.len() <= 1,
+            "multiple JPEG files share one XMP: {:?}",
+            paths
+        );
         let selected = raws
             .first()
             .map(|p| (*p).clone())
@@ -83,6 +88,35 @@ pub fn review_source(identity: &Path) -> PathBuf {
         }
     }
     identity.to_path_buf()
+}
+
+/// Enumerate all supported physical companions, even when only one was selected.
+/// Reject ambiguous RAW identities and linked companions rather than freezing an
+/// incomplete asset set for a later metadata plan.
+pub fn photo_assets(image: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    anyhow::ensure!(is_supported(image), "unsupported photo identity");
+    anyhow::ensure!(
+        !fs::symlink_metadata(image)?.file_type().is_symlink(),
+        "refusing linked image"
+    );
+    let image = image.canonicalize()?;
+    let mut assets = Vec::new();
+    for entry in fs::read_dir(image.parent().unwrap())? {
+        let entry = entry?;
+        let path = entry.path();
+        if same_stem(&path, &image) && is_supported(&path) {
+            anyhow::ensure!(entry.file_type()?.is_file(), "non-regular photo companion");
+            assets.push(path.canonicalize()?);
+        }
+    }
+    assets.sort();
+    assets.dedup();
+    anyhow::ensure!(
+        assets.contains(&image),
+        "identity disappeared during discovery"
+    );
+    deduplicate_images(assets.clone())?;
+    Ok(assets)
 }
 
 /// Supported image file extensions (lowercase).
@@ -132,33 +166,53 @@ pub fn is_supported(path: &Path) -> bool {
 /// checked directly against the supported extensions. Unsupported or unreadable paths
 /// produce a warning via `tracing::warn`. Results are sorted lexicographically.
 pub fn discover_images(paths: &[PathBuf]) -> Vec<PathBuf> {
+    discover_with_errors(paths).0
+}
+
+/// Strict job discovery uses the same walker but refuses a partial result when
+/// any requested input or visited directory is unreadable/unsupported.
+pub fn discover_images_checked(paths: &[PathBuf]) -> anyhow::Result<Vec<PathBuf>> {
+    let (images, errors) = discover_with_errors(paths);
+    anyhow::ensure!(
+        errors.is_empty(),
+        "incomplete discovery: {}",
+        errors.join("; ")
+    );
+    Ok(images)
+}
+
+fn discover_with_errors(paths: &[PathBuf]) -> (Vec<PathBuf>, Vec<String>) {
     let mut results = Vec::new();
+    let mut errors = Vec::new();
 
     for path in paths {
         if path.is_dir() {
-            scan_dir(path, &mut results);
+            scan_dir(path, &mut results, &mut errors);
         } else if path.is_file() {
             if is_supported(path) {
                 results.push(path.clone());
             } else {
                 tracing::warn!("skipping unsupported file: {}", path.display());
+                errors.push(format!("unsupported input: {}", path.display()));
             }
         } else {
             tracing::warn!("skipping unreadable path: {}", path.display());
+            errors.push(format!("unreadable input: {}", path.display()));
         }
     }
 
     results.sort();
     results.dedup();
-    results
+    (results, errors)
 }
 
 /// Recursively scan a directory, collecting supported image files.
-fn scan_dir(dir: &Path, results: &mut Vec<PathBuf>) {
+fn scan_dir(dir: &Path, results: &mut Vec<PathBuf>, errors: &mut Vec<String>) {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) => {
             tracing::warn!("cannot read directory {}: {}", dir.display(), e);
+            errors.push(format!("{}: {e}", dir.display()));
             return;
         }
     };
@@ -168,6 +222,7 @@ fn scan_dir(dir: &Path, results: &mut Vec<PathBuf>) {
             Ok(e) => e,
             Err(e) => {
                 tracing::warn!("error reading directory entry: {}", e);
+                errors.push(format!("{}: {e}", dir.display()));
                 continue;
             }
         };
@@ -178,7 +233,7 @@ fn scan_dir(dir: &Path, results: &mut Vec<PathBuf>) {
         match entry.file_type() {
             Ok(ft) if ft.is_dir() => {
                 if !entry.file_name().to_string_lossy().starts_with('.') {
-                    scan_dir(&path, results);
+                    scan_dir(&path, results, errors);
                 }
             }
             Ok(ft) if ft.is_file() => {
@@ -186,7 +241,11 @@ fn scan_dir(dir: &Path, results: &mut Vec<PathBuf>) {
                     results.push(path);
                 }
             }
-            _ => tracing::warn!("skipping symlink or unreadable entry: {}", path.display()),
+            Ok(_) => tracing::warn!("skipping symlink: {}", path.display()),
+            Err(e) => {
+                tracing::warn!("unreadable entry: {}: {e}", path.display());
+                errors.push(format!("{}: {e}", path.display()));
+            }
         }
     }
 }
