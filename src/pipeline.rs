@@ -6,11 +6,11 @@
 //! from the `concurrency` field in [`Config`]'s default settings.
 
 use crate::attach_progress_bar;
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{debug, error, warn};
@@ -46,8 +46,8 @@ pub struct PipelineOptions {
 /// 3. Preprocesses the image (decode, resize, base64-encode) — skipped
 ///    entirely when no LLM stage needs to run.
 /// 4. Optionally calls the description provider and stores the result.
-/// 5. Optionally calls the scoring provider, clamps scores, and stores the result.
-/// 6. Backs up the existing XMP sidecar if `options.backup` is set.
+/// 5. Optionally calls the scoring provider, validates scores, and stores the result.
+/// 6. Records a mandatory recovery transaction; optionally keeps a legacy backup.
 /// 7. Writes the updated XMP sidecar to disk.
 ///
 /// A progress bar is displayed during processing and a [`RunSummary`] is
@@ -55,9 +55,8 @@ pub struct PipelineOptions {
 ///
 /// # Errors
 ///
-/// Returns an error if any Tokio task panics (i.e. if joining a task fails).
-/// Per-image errors are logged via `warn!` / `error!` and counted in the
-/// summary rather than propagating.
+/// Returns an error for invalid configuration, ambiguous input groups, task panics,
+/// or any photo analysis/save failure. Other photos may still complete successfully.
 pub async fn run_pipeline(
     images: Vec<PathBuf>,
     config: &Config,
@@ -65,6 +64,12 @@ pub async fn run_pipeline(
     clients: Arc<LlmClients>,
     options: PipelineOptions,
 ) -> Result<()> {
+    ensure!(
+        (1..=32).contains(&config.default_settings.concurrency),
+        "concurrency must be 1..=32"
+    );
+    let images = crate::discovery::deduplicate_images(images)?;
+    let failures = Arc::new(AtomicUsize::new(0));
     let summary = Arc::new(RunSummary::new());
     let semaphore = Arc::new(Semaphore::new(config.default_settings.concurrency));
 
@@ -94,7 +99,8 @@ pub async fn run_pipeline(
     let mut tasks = JoinSet::new();
 
     for image_path in images {
-        let sem = semaphore.clone();
+        let failures = failures.clone();
+        let permit = semaphore.clone().acquire_owned().await?;
         let clients = clients.clone();
         let summary = summary.clone();
         let prompts_rendered = prompts_rendered.clone();
@@ -103,7 +109,7 @@ pub async fn run_pipeline(
         let pb = pb.clone();
 
         tasks.spawn(async move {
-            let _permit = sem.acquire().await.unwrap();
+            let _permit = permit;
             let filename = image_path
                 .file_name()
                 .unwrap_or_default()
@@ -121,8 +127,10 @@ pub async fn run_pipeline(
                 match XmpSidecar::read(&sidecar_path) {
                     Ok(s) => s,
                     Err(e) => {
-                        warn!("Malformed sidecar for {filename}, creating new: {e}");
-                        XmpSidecar::new()
+                        error!("Unreadable sidecar for {filename}; leaving it untouched: {e}");
+                        failures.fetch_add(1, Ordering::Relaxed);
+                        pb.inc(1);
+                        return;
                     }
                 }
             } else {
@@ -132,15 +140,17 @@ pub async fn run_pipeline(
             sidecar.set_original_filename(&filename);
 
             let needs_description =
-                !options.no_description && (options.force || !sidecar.has_description());
+                !options.no_description && !sidecar.has_description();
             let needs_scoring = !options.describe_only && (options.force || !sidecar.has_scores());
             let mut had_llm_error = false;
+            let mut described = false;
+            let mut scored = None;
 
             let preprocessed = if needs_description || needs_scoring {
                 // Preprocess on a blocking worker — fs read, RAW decode,
                 // resize and JPEG re-encode are all CPU/IO bound and would
                 // otherwise stall tokio workers.
-                let preprocess_path = image_path.clone();
+                let preprocess_path = crate::discovery::review_source(&image_path);
                 match tokio::task::spawn_blocking(move || preprocess_image(&preprocess_path)).await
                 {
                     Ok(Ok(p)) => Some(p),
@@ -149,6 +159,7 @@ pub async fn run_pipeline(
                         summary
                             .skipped_unreadable
                             .fetch_add(1, Ordering::Relaxed);
+                        failures.fetch_add(1, Ordering::Relaxed);
                         pb.inc(1);
                         return;
                     }
@@ -157,6 +168,7 @@ pub async fn run_pipeline(
                         summary
                             .skipped_unreadable
                             .fetch_add(1, Ordering::Relaxed);
+                        failures.fetch_add(1, Ordering::Relaxed);
                         pb.inc(1);
                         return;
                     }
@@ -186,9 +198,7 @@ pub async fn run_pipeline(
                         debug!("{filename}: description received ({} chars)", desc.len());
                         debug!("{filename}: description = {desc}");
                         sidecar.set_description(desc);
-                        summary
-                            .described
-                            .fetch_add(1, Ordering::Relaxed);
+                        described = true;
                     }
                     Err(e) => {
                         warn!("Description failed for {filename}: {e:#}");
@@ -206,12 +216,13 @@ pub async fn run_pipeline(
                 && needs_scoring
             {
                 let score_result = retry_with_backoff(3, || async {
-                    clients.score(&preprocessed.base64, &prompts_rendered).await
+                    let scores = clients.score(&preprocessed.base64, &prompts_rendered).await?;
+                    scores.validate()?;
+                    Ok(scores)
                 })
                 .await;
                 match score_result {
-                    Ok(mut scores) => {
-                        scores.clamp();
+                    Ok(scores) => {
                         let overall = scores.overall_score();
                         debug!("{filename}: scored {overall:.2} — {scores:?}");
                         if let Some(ref critique) = scores.critique {
@@ -220,20 +231,17 @@ pub async fn run_pipeline(
                         }
                         if let Some(ref keywords) = scores.keywords
                             && !keywords.is_empty()
+                            && sidecar.keywords().is_empty()
                         {
                             sidecar.set_keywords(keywords);
                         }
                         sidecar.set_scores(&scores, overall, &provider_info);
 
                         let stars = score_to_stars(overall);
-                        if !(options.no_rating || options.describe_only) {
+                        if !(options.no_rating || options.describe_only || sidecar.has_rating()) {
                             sidecar.set_rating(stars);
                         }
-                        let star_display =
-                            "★".repeat(stars as usize) + &"☆".repeat(5 - stars as usize);
-                        pb.println(format!("  {filename} {star_display} ({overall:.2})"));
-
-                        summary.record_score(&filename, overall);
+                        scored = Some(overall);
                     }
                     Err(e) => {
                         warn!("Scoring failed for {filename}: {e:#}");
@@ -244,11 +252,14 @@ pub async fn run_pipeline(
 
             // Count at most one LLM skip per image, not per failed stage.
             if had_llm_error {
+                failures.fetch_add(1, Ordering::Relaxed);
                 summary
                     .skipped_llm_error
                     .fetch_add(1, Ordering::Relaxed);
             }
 
+            // An incomplete analysis must not leave a partial saved result.
+            if had_llm_error { pb.inc(1); return; }
             // Backup & write — only when something actually changed.
             if sidecar.is_dirty() {
                 if options.backup
@@ -256,15 +267,25 @@ pub async fn run_pipeline(
                     && let Err(e) = backup_sidecar(&sidecar_path)
                 {
                     error!("Backup failed for {filename}: {e}");
+                    failures.fetch_add(1, Ordering::Relaxed);
+                    pb.inc(1);
+                    return;
                 }
 
                 if let Err(e) = sidecar.write(&sidecar_path) {
                     error!(
-                        "Failed to write sidecar for {filename}: {e} — description and scores lost, re-run with --force to retry"
+                        "Failed to save sidecar for {filename}: {e}; inspect the recovery transaction before retrying"
                     );
+                    failures.fetch_add(1, Ordering::Relaxed);
+                    pb.inc(1);
+                    return;
                 }
             }
-
+            if described { summary.described.fetch_add(1, Ordering::Relaxed); }
+            if let Some(overall) = scored {
+                summary.record_score(&filename, overall);
+                pb.println(format!("  {filename}: score saved ({overall:.2}); existing human metadata preserved"));
+            }
             pb.inc(1);
         });
     }
@@ -274,7 +295,14 @@ pub async fn run_pipeline(
     }
 
     pb.finish_and_clear();
+    summary
+        .failed
+        .store(failures.load(Ordering::Relaxed), Ordering::Relaxed);
     summary.display();
-
+    ensure!(
+        failures.load(Ordering::Relaxed) == 0,
+        "{} photo(s) failed; inspect errors and retry",
+        failures.load(Ordering::Relaxed)
+    );
     Ok(())
 }

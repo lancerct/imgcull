@@ -100,31 +100,27 @@ fn recurses_into_nested_directories() {
 
 #[cfg(unix)]
 #[test]
-fn follows_symlinked_directories() {
-    // The scan trusts the readdir file type for regular entries and falls
-    // back to the link-following Path checks for symlinks — a symlinked
-    // subdirectory must still be scanned.
+fn skips_symlinked_directories() {
+    // Recursive discovery must not escape the requested folder through a link.
     let real = TempDir::new().unwrap();
     touch(&real, "linked.jpg");
     let root = TempDir::new().unwrap();
     std::os::unix::fs::symlink(real.path(), root.path().join("alias")).unwrap();
 
     let found = discover_images(&[root.path().to_path_buf()]);
-    assert_eq!(found.len(), 1);
-    assert!(found[0].ends_with("linked.jpg"));
+    assert!(found.is_empty());
 }
 
 #[cfg(unix)]
 #[test]
-fn discovers_symlinked_files() {
+fn skips_symlinked_files() {
     let real = TempDir::new().unwrap();
     let target = touch(&real, "target.jpg");
     let root = TempDir::new().unwrap();
     std::os::unix::fs::symlink(&target, root.path().join("link.jpg")).unwrap();
 
     let found = discover_images(&[root.path().to_path_buf()]);
-    assert_eq!(found.len(), 1);
-    assert!(found[0].ends_with("link.jpg"));
+    assert!(found.is_empty());
 }
 
 #[test]

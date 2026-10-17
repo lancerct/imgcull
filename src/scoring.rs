@@ -42,6 +42,17 @@ pub struct ScoringResult {
 }
 
 impl ScoringResult {
+    /// Incomplete or non-finite model output must never become a saved rating.
+    pub fn validate(&self) -> anyhow::Result<()> {
+        for dimension in DIMENSIONS {
+            anyhow::ensure!(
+                self.get(dimension)
+                    .is_some_and(|v| v.is_finite() && (0.0..=1.0).contains(&v)),
+                "missing or invalid scoring dimension: {dimension}"
+            );
+        }
+        Ok(())
+    }
     /// Look up a scoring dimension by name.
     ///
     /// Recognised names: `"sharpness"`, `"exposure"`, `"composition"`,

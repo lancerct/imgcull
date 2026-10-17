@@ -146,21 +146,17 @@ fn scan_dir_for_xmp(dir: &Path, results: &mut BTreeSet<PathBuf>) {
 
         let path = entry.path();
         // Same syscall-avoidance as `discovery::scan_dir`: trust the readdir
-        // file type for regular entries, stat only symlinks.
+        // file type for regular entries and skip links.
         match entry.file_type() {
-            Ok(ft) if ft.is_dir() => scan_dir_for_xmp(&path, results),
-            Ok(ft) if !ft.is_symlink() => {
-                if is_xmp(&path) {
-                    results.insert(path);
-                }
-            }
-            _ => {
-                if path.is_dir() {
+            Ok(ft) if ft.is_dir() => {
+                if !entry.file_name().to_string_lossy().starts_with('.') {
                     scan_dir_for_xmp(&path, results);
-                } else if is_xmp(&path) {
-                    results.insert(path);
                 }
             }
+            Ok(ft) if ft.is_file() && is_xmp(&path) => {
+                results.insert(path);
+            }
+            _ => (),
         }
     }
 }
@@ -377,6 +373,9 @@ mod tests {
         let scores = ScoringResult {
             sharpness: Some(0.90),
             exposure: Some(0.75),
+            composition: Some(0.825),
+            subject_clarity: Some(0.825),
+            aesthetics: Some(0.825),
             ..Default::default()
         };
         let mut sidecar = XmpSidecar::new();
@@ -417,6 +416,18 @@ mod tests {
 
         let xmp_files = discover_xmp_files(&[tmp.path().to_path_buf()]);
         assert_eq!(xmp_files.len(), 2);
+    }
+
+    #[test]
+    fn report_ignores_transaction_snapshots() {
+        let tmp = TempDir::new().unwrap();
+        let backup = tmp.path().join(".imgcull/transactions/test");
+        std::fs::create_dir_all(&backup).unwrap();
+        std::fs::write(backup.join("before.xmp"), "backup").unwrap();
+        std::fs::write(backup.join("after.xmp"), "backup").unwrap();
+        let original = tmp.path().join("photo.xmp");
+        std::fs::write(&original, "source").unwrap();
+        assert_eq!(discover_xmp_files(&[tmp.path().into()]), vec![original]);
     }
 
     #[test]

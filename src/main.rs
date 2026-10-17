@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Commands::Init => run_init(),
+        Commands::Rollback { transaction } => imgcull::metadata_transaction::rollback(&transaction),
     }
 }
 
@@ -71,18 +72,27 @@ async fn run_process(args: cli::ProcessArgs, describe_only: bool) -> Result<()> 
         config.default_settings.backup = true;
     }
 
+    anyhow::ensure!(
+        (1..=32).contains(&config.default_settings.concurrency),
+        "concurrency must be 1..=32"
+    );
+
     let prompts_path = args
         .prompts
         .clone()
         .unwrap_or_else(|| config_dir.join("prompts.toml"));
     let prompts = imgcull::config::Prompts::load(&prompts_path)?;
 
-    let images = imgcull::discovery::discover_images(&args.paths);
+    let images =
+        imgcull::discovery::deduplicate_images(imgcull::discovery::discover_images(&args.paths))?;
     if images.is_empty() {
         eprintln!("No supported images found.");
         return Ok(());
     }
-    eprintln!("Found {} images to process.", images.len());
+    eprintln!(
+        "Found {} photos to process (RAW/JPEG companions count once).",
+        images.len()
+    );
 
     // Dry-run: list images without requiring API keys or LLM clients
     if args.dry_run {

@@ -24,6 +24,8 @@ struct ScoreStats {
 pub struct RunSummary {
     /// Total number of images submitted to the pipeline.
     pub total: AtomicUsize,
+    /// Photos that failed analysis, validation, backup, or saving.
+    pub failed: AtomicUsize,
     /// Number of images that received a quality score.
     pub scored: AtomicUsize,
     /// Number of images that received a description.
@@ -43,6 +45,7 @@ impl RunSummary {
     pub fn new() -> Self {
         Self {
             total: AtomicUsize::new(0),
+            failed: AtomicUsize::new(0),
             scored: AtomicUsize::new(0),
             described: AtomicUsize::new(0),
             skipped_existing_description: AtomicUsize::new(0),
@@ -77,7 +80,8 @@ impl RunSummary {
         let skip_llm = self.skipped_llm_error.load(Ordering::Relaxed);
         let skip_unread = self.skipped_unreadable.load(Ordering::Relaxed);
         let skipped = skip_llm + skip_unread;
-        let processed = total - skipped;
+        let failed = self.failed.load(Ordering::Relaxed);
+        let processed = total.saturating_sub(failed);
 
         let stats = self.stats.lock().unwrap();
         let avg = if scored > 0 {
@@ -87,6 +91,9 @@ impl RunSummary {
         };
 
         eprintln!("\nimgcull: {processed}/{total} images processed");
+        if failed > 0 {
+            eprintln!("  {failed} failed; run exits with an error");
+        }
         if scored > 0
             && let Some((name, score)) = stats.best.as_ref()
         {

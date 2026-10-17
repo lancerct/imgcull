@@ -1,616 +1,343 @@
-//! XMP sidecar read/write for image metadata and imgcull scores.
-//!
-//! Provides utilities for computing sidecar paths, reading and writing XMP
-//! sidecar files, and backing up existing sidecars before modification.
-
-use std::fmt::Write as _;
+//! Namespace-aware, byte-preserving XMP edits.
+use crate::scoring::ScoringResult;
+use anyhow::{Context, Result, ensure};
+use chrono::Utc;
+use quick_xml::escape::escape;
+use roxmltree::{Document, Node};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-use anyhow::{Context, Result};
-use chrono::Utc;
-use quick_xml::Reader;
-use quick_xml::escape::escape;
-use quick_xml::events::Event;
-
-use crate::scoring::ScoringResult;
-
-/// Compute the XMP sidecar path that corresponds to an image by replacing
-/// the extension with `.xmp`.
-///
-/// # Examples
-/// - `IMG_1234.jpg` becomes `IMG_1234.xmp`
-/// - `IMG_5678.CR2` becomes `IMG_5678.xmp`
+const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+const DC: &str = "http://purl.org/dc/elements/1.1/";
+const XMP: &str = "http://ns.adobe.com/xap/1.0/";
+const IC: &str = "http://imgcull.dev/ns/1.0/";
+const EMPTY: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF></x:xmpmeta>"#;
 pub fn sidecar_for_image(path: &Path) -> PathBuf {
     path.with_extension("xmp")
 }
-
-/// In-memory representation of an XMP sidecar file.
-///
-/// Stores image metadata including ratings, descriptions, and imgcull scores
-/// computed by LLM evaluation.
+fn description_node<'a>(doc: &'a Document<'a>) -> Result<Node<'a, 'a>> {
+    let nodes: Vec<_> = doc
+        .descendants()
+        .filter(|n| {
+            n.has_tag_name((RDF, "Description"))
+                && n.parent().is_some_and(|p| p.has_tag_name((RDF, "RDF")))
+        })
+        .collect();
+    ensure!(
+        nodes.len() == 1,
+        "XMP must have exactly one top-level RDF Description; refusing ambiguous edit"
+    );
+    Ok(nodes[0])
+}
+fn property(node: Node<'_, '_>, ns: &str, name: &str) -> Result<Option<String>> {
+    let attrs: Vec<_> = node
+        .attributes()
+        .filter(|a| a.namespace() == Some(ns) && a.name() == name)
+        .collect();
+    let children: Vec<_> = node
+        .children()
+        .filter(|n| n.has_tag_name((ns, name)))
+        .collect();
+    ensure!(
+        attrs.len() + children.len() <= 1,
+        "duplicate XMP property: {name}"
+    );
+    Ok(attrs.first().map(|a| a.value().to_string()).or_else(|| {
+        children.first().map(|n| {
+            n.descendants()
+                .filter(|n| n.is_text())
+                .filter_map(|n| n.text())
+                .collect()
+        })
+    }))
+}
 #[derive(Debug, Clone, Default)]
 pub struct XmpSidecar {
-    /// The `dc:description` text, if present.
     description: Option<String>,
-    /// XMP rating (1–5 stars).
     rating: Option<u8>,
-    /// Overall imgcull score (0.0–1.0).
+    rating_present: bool,
+    label: Option<String>,
     overall_score: Option<f64>,
-    /// Per-dimension scores, e.g. `[("sharpness", 0.9), ...]`.
     dimension_scores: Vec<(String, f64)>,
-    /// ISO-8601 timestamp of when scoring was performed.
     scored_at: Option<String>,
-    /// Identifier of the model that produced the scores.
     scored_by: Option<String>,
-    /// Comma-separated list of scored dimensions.
     dimensions_list: Option<String>,
-    /// Original filename of the source image.
     original_filename: Option<String>,
-    /// Raw LLM response text from the scoring call.
     scoring_response: Option<String>,
-    /// Photography keywords, written as `dc:subject`.
     keywords: Vec<String>,
-    /// Whether any field has been modified since construction or last read.
-    ///
-    /// Used by the pipeline to skip writing when nothing has changed.
-    dirty: bool,
-    /// Raw file content read from disk, used to merge our fields into the
-    /// existing XML rather than regenerating the whole document from scratch.
+    dirty: BTreeSet<String>,
     raw_content: Option<String>,
 }
-
 impl XmpSidecar {
-    /// Create an empty sidecar with no metadata.
     pub fn new() -> Self {
         Self::default()
     }
-
-    /// Parse an existing XMP sidecar file.
-    ///
-    /// Extracts `dc:description` text and `imgcull:score` if present.
-    /// Returns an error for malformed XML.
     pub fn read(path: &Path) -> Result<Self> {
         let content =
             fs::read_to_string(path).with_context(|| format!("reading XMP: {}", path.display()))?;
-
-        // Validate that the XML is well-formed by walking all events.
-        let mut reader = Reader::from_str(&content);
-        loop {
-            match reader.read_event() {
-                Ok(Event::Eof) => break,
-                Err(e) => {
-                    return Err(anyhow::anyhow!(
-                        "malformed XML in {}: {}",
-                        path.display(),
-                        e
-                    ));
-                }
-                _ => {}
-            }
-        }
-
-        let mut sidecar = Self::new();
-
-        // Extract dc:description text via simple string searching.
-        if let Some(start) = content.find("<rdf:li xml:lang=\"x-default\">") {
-            let text_start = start + "<rdf:li xml:lang=\"x-default\">".len();
-            if let Some(end) = content[text_start..].find("</rdf:li>") {
-                let desc = &content[text_start..text_start + end];
-                if content[..start].contains("dc:description") {
-                    sidecar.description = Some(desc.to_string());
-                }
-            }
-        }
-
-        // Extract imgcull:score.
-        if let Some(score_str) = extract_element(&content, "imgcull:score")
-            && let Ok(val) = score_str.parse::<f64>()
+        let doc = Document::parse(&content).context("malformed XMP")?;
+        let node = description_node(&doc)?;
+        let rating_text = property(node, XMP, "Rating")?;
+        let mut s = Self {
+            description: property(node, DC, "description")?,
+            rating: rating_text.as_ref().and_then(|r| r.parse().ok()),
+            rating_present: rating_text.is_some(),
+            label: property(node, XMP, "Label")?,
+            overall_score: property(node, IC, "score")?.and_then(|v| v.parse().ok()),
+            scored_at: property(node, IC, "scored_at")?,
+            scored_by: property(node, IC, "scored_by")?,
+            dimensions_list: property(node, IC, "dimensions")?,
+            original_filename: property(node, IC, "original_filename")?,
+            scoring_response: property(node, IC, "scoring_response")?,
+            ..Self::default()
+        };
+        if let Some(desc) = node
+            .children()
+            .find(|n| n.has_tag_name((DC, "description")))
+            && let Some(li) = desc.descendants().find(|n| {
+                n.has_tag_name((RDF, "li"))
+                    && n.attribute(("http://www.w3.org/XML/1998/namespace", "lang"))
+                        == Some("x-default")
+            })
         {
-            sidecar.overall_score = Some(val);
+            s.description = Some(li.text().unwrap_or("").to_string());
         }
-
-        // Extract imgcull:scored_at.
-        if let Some(val) = extract_element(&content, "imgcull:scored_at") {
-            sidecar.scored_at = Some(val.to_owned());
+        if let Some(subject) = node.children().find(|n| n.has_tag_name((DC, "subject"))) {
+            property(node, DC, "subject")?;
+            s.keywords = subject
+                .descendants()
+                .filter(|n| n.has_tag_name((RDF, "li")))
+                .filter_map(|n| n.text())
+                .map(str::to_string)
+                .collect();
         }
-
-        // Extract imgcull:scored_by.
-        if let Some(val) = extract_element(&content, "imgcull:scored_by") {
-            sidecar.scored_by = Some(val.to_owned());
-        }
-
-        // Extract imgcull:original_filename.
-        if let Some(val) = extract_element(&content, "imgcull:original_filename") {
-            sidecar.original_filename = Some(val.to_owned());
-        }
-
-        // Extract imgcull:scoring_response.
-        if let Some(val) = extract_element(&content, "imgcull:scoring_response") {
-            sidecar.scoring_response = Some(val.to_owned());
-        }
-
-        // Extract imgcull:dimensions.
-        if let Some(val) = extract_element(&content, "imgcull:dimensions") {
-            for dim_name in val.split(',') {
-                let dim_name = dim_name.trim();
-                if let Some(score_str) = extract_element(&content, &format!("imgcull:{dim_name}"))
-                    && let Ok(v) = score_str.parse::<f64>()
-                {
-                    sidecar.dimension_scores.push((dim_name.to_string(), v));
-                }
-            }
-            sidecar.dimensions_list = Some(val.to_owned());
-        }
-
-        // Extract dc:subject keywords.
-        if let Some(subj_start) = content.find("<dc:subject>")
-            && let Some(subj_end) = content[subj_start..].find("</dc:subject>")
-        {
-            let subj_block = &content[subj_start..subj_start + subj_end];
-            let mut search_from = 0;
-            while let Some(li_start) = subj_block[search_from..].find("<rdf:li>") {
-                let text_start = search_from + li_start + "<rdf:li>".len();
-                if let Some(li_end) = subj_block[text_start..].find("</rdf:li>") {
-                    sidecar
-                        .keywords
-                        .push(subj_block[text_start..text_start + li_end].to_string());
-                    search_from = text_start + li_end;
-                } else {
-                    break;
-                }
+        for name in crate::scoring::DIMENSIONS {
+            if let Some(v) = property(node, IC, name)?.and_then(|v| v.parse().ok()) {
+                s.dimension_scores.push((name.to_string(), v));
             }
         }
-
-        // Extract xmp:Rating from attribute.
-        if let Some(start) = content.find("xmp:Rating=\"") {
-            let val_start = start + "xmp:Rating=\"".len();
-            if let Some(end) = content[val_start..].find('"')
-                && let Ok(r) = content[val_start..val_start + end].parse::<u8>()
-            {
-                sidecar.rating = Some(r);
-            }
-        }
-
-        // Store raw content for merge-on-write (moved, not cloned).
-        sidecar.raw_content = Some(content);
-
-        Ok(sidecar)
+        s.raw_content = Some(content);
+        Ok(s)
     }
-
-    /// Returns `true` if a `dc:description` is present.
     pub fn has_description(&self) -> bool {
         self.description.is_some()
     }
-
-    /// Returns `true` if imgcull scores have been set.
     pub fn has_scores(&self) -> bool {
-        self.overall_score.is_some()
+        self.overall_score
+            .is_some_and(|v| v.is_finite() && (0.0..=1.0).contains(&v))
+            && crate::scoring::DIMENSIONS.iter().all(|d| {
+                self.dimension_scores
+                    .iter()
+                    .any(|(name, v)| name == d && v.is_finite() && (0.0..=1.0).contains(v))
+            })
     }
-
-    /// Returns `true` if any field has been modified since construction or last read.
-    ///
-    /// Use this to skip writing the sidecar when nothing has changed.
     pub fn is_dirty(&self) -> bool {
-        self.dirty
+        !self.dirty.is_empty()
     }
-
-    /// Returns the `dc:description` text, if any.
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
     }
-
-    /// Set the `dc:description` text.
-    pub fn set_description(&mut self, desc: &str) {
-        self.description = Some(desc.to_string());
-        self.dirty = true;
-    }
-
-    /// Store scoring results from an LLM evaluation.
-    ///
-    /// Records per-dimension scores for every populated dimension in
-    /// [`crate::scoring::DIMENSIONS`], the overall score, a timestamp, and
-    /// the model identifier.  The `scored_at` field is set to the current
-    /// UTC time.
-    pub fn set_scores(&mut self, scores: &ScoringResult, overall: f64, scored_by: &str) {
-        self.overall_score = Some(overall);
-        self.scored_by = Some(scored_by.to_string());
-        self.scored_at = Some(Utc::now().to_rfc3339());
-        self.dimensions_list = Some(crate::scoring::DIMENSIONS.join(","));
-        self.dirty = true;
-
-        self.dimension_scores.clear();
-        for dim in crate::scoring::DIMENSIONS {
-            if let Some(val) = scores.get(dim) {
-                self.dimension_scores.push((dim.to_string(), val));
-            }
-        }
-    }
-
-    /// Set the XMP star rating (1–5).
-    pub fn set_rating(&mut self, stars: u8) {
-        self.rating = Some(stars);
-        self.dirty = true;
-    }
-
-    /// Set the original filename of the source image.
-    ///
-    /// The pipeline calls this once per image on every run, including when no
-    /// LLM work is needed, so we only mark the sidecar dirty when the value
-    /// actually changed — otherwise re-runs would rewrite every file.
-    pub fn set_original_filename(&mut self, filename: &str) {
-        if self.original_filename.as_deref() == Some(filename) {
-            return;
-        }
-        self.original_filename = Some(filename.to_string());
-        self.dirty = true;
-    }
-
-    /// Store the raw LLM response text from the scoring call.
-    pub fn set_scoring_response(&mut self, response: &str) {
-        self.scoring_response = Some(response.to_string());
-        self.dirty = true;
-    }
-
-    /// Set photography keywords for `dc:subject`.
-    pub fn set_keywords(&mut self, keywords: &[String]) {
-        self.keywords = keywords.to_vec();
-        self.dirty = true;
-    }
-
-    /// Returns the photography keywords, if any.
-    pub fn keywords(&self) -> &[String] {
-        &self.keywords
-    }
-
-    /// Returns the XMP star rating (1–5), if set.
     pub fn rating(&self) -> Option<u8> {
         self.rating
     }
-
-    /// Returns the overall imgcull score (0.0–1.0), if set.
+    /// Includes reject ratings and unfamiliar values; automation must preserve them.
+    pub fn has_rating(&self) -> bool {
+        self.rating_present
+    }
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+    pub fn keywords(&self) -> &[String] {
+        &self.keywords
+    }
     pub fn overall_score(&self) -> Option<f64> {
         self.overall_score
     }
-
-    /// Returns per-dimension scores as `(name, value)` pairs.
     pub fn dimension_scores(&self) -> &[(String, f64)] {
         &self.dimension_scores
     }
-
-    /// Returns the model identifier that produced the scores, if set.
     pub fn scored_by(&self) -> Option<&str> {
         self.scored_by.as_deref()
     }
-
-    /// Returns the ISO-8601 timestamp of when scoring was performed, if set.
     pub fn scored_at(&self) -> Option<&str> {
         self.scored_at.as_deref()
     }
-
-    /// Returns the raw LLM critique/response text, if set.
     pub fn scoring_response(&self) -> Option<&str> {
         self.scoring_response.as_deref()
     }
-
-    /// Returns the original filename of the source image, if set.
     pub fn original_filename(&self) -> Option<&str> {
         self.original_filename.as_deref()
     }
-
-    /// Write the XMP document to disk.
-    ///
-    /// If the sidecar was previously read from disk (i.e. `raw_content` is
-    /// set), the existing content is used as the base and only imgcull-managed
-    /// fields (`dc:description`, `xmp:Rating`, and all `imgcull:*` elements)
-    /// are replaced, preserving any other namespaces and fields written by
-    /// third-party tools such as Lightroom.
-    ///
-    /// If no existing content is available, a new document is generated from
-    /// scratch.
-    pub fn write(&self, path: &Path) -> Result<()> {
-        let xml = if let Some(ref base) = self.raw_content {
-            merge_into_existing(base, self)
-        } else {
-            generate_from_scratch(self)
-        };
-
-        fs::write(path, &xml).with_context(|| format!("writing XMP: {}", path.display()))?;
-        Ok(())
+    pub fn set_description(&mut self, v: &str) {
+        self.description = Some(v.into());
+        self.dirty.insert("description".into());
     }
-}
-
-/// Build the imgcull fields fragment that is inserted into `<rdf:Description>`.
-fn build_imgcull_fields(sidecar: &XmpSidecar) -> String {
-    let mut fields = String::new();
-
-    // Writing to a String is infallible, so the `writeln!` results below can
-    // never error — the `.unwrap()`s document that invariant.
-
-    // dc:description
-    if let Some(ref desc) = sidecar.description {
-        let escaped = escape(desc);
-        fields.push_str("      <dc:description>\n");
-        fields.push_str("        <rdf:Alt>\n");
-        writeln!(
-            fields,
-            "          <rdf:li xml:lang=\"x-default\">{escaped}</rdf:li>"
-        )
-        .unwrap();
-        fields.push_str("        </rdf:Alt>\n");
-        fields.push_str("      </dc:description>\n");
+    pub fn set_rating(&mut self, v: u8) {
+        self.rating = Some(v);
+        self.rating_present = true;
+        self.dirty.insert("Rating".into());
     }
-
-    // dc:subject (keywords)
-    if !sidecar.keywords.is_empty() {
-        fields.push_str("      <dc:subject>\n");
-        fields.push_str("        <rdf:Bag>\n");
-        for kw in &sidecar.keywords {
-            let escaped = escape(kw);
-            writeln!(fields, "          <rdf:li>{escaped}</rdf:li>").unwrap();
+    pub fn set_label(&mut self, v: &str) {
+        self.label = Some(v.into());
+        self.dirty.insert("Label".into());
+    }
+    pub fn set_original_filename(&mut self, v: &str) {
+        if self.original_filename.as_deref() != Some(v) {
+            self.original_filename = Some(v.into());
+            self.dirty.insert("original_filename".into());
         }
-        fields.push_str("        </rdf:Bag>\n");
-        fields.push_str("      </dc:subject>\n");
     }
-
-    // imgcull:score
-    if let Some(score) = sidecar.overall_score {
-        writeln!(fields, "      <imgcull:score>{score:.2}</imgcull:score>").unwrap();
+    pub fn set_scoring_response(&mut self, v: &str) {
+        self.scoring_response = Some(v.into());
+        self.dirty.insert("scoring_response".into());
     }
-
-    // Per-dimension scores
-    for (name, val) in &sidecar.dimension_scores {
-        writeln!(fields, "      <imgcull:{name}>{val:.2}</imgcull:{name}>").unwrap();
+    pub fn set_keywords(&mut self, v: &[String]) {
+        self.keywords = v.to_vec();
+        self.dirty.insert("subject".into());
     }
-
-    // imgcull:scored_at
-    if let Some(ref ts) = sidecar.scored_at {
-        writeln!(fields, "      <imgcull:scored_at>{ts}</imgcull:scored_at>").unwrap();
-    }
-
-    // imgcull:scored_by
-    if let Some(ref model) = sidecar.scored_by {
-        writeln!(
-            fields,
-            "      <imgcull:scored_by>{model}</imgcull:scored_by>"
-        )
-        .unwrap();
-    }
-
-    // imgcull:dimensions
-    if let Some(ref dims) = sidecar.dimensions_list {
-        writeln!(
-            fields,
-            "      <imgcull:dimensions>{dims}</imgcull:dimensions>"
-        )
-        .unwrap();
-    }
-
-    // imgcull:original_filename
-    if let Some(ref fname) = sidecar.original_filename {
-        let escaped = escape(fname);
-        writeln!(
-            fields,
-            "      <imgcull:original_filename>{escaped}</imgcull:original_filename>"
-        )
-        .unwrap();
-    }
-
-    // imgcull:scoring_response
-    if let Some(ref response) = sidecar.scoring_response {
-        let escaped = escape(response);
-        writeln!(
-            fields,
-            "      <imgcull:scoring_response>{escaped}</imgcull:scoring_response>"
-        )
-        .unwrap();
-    }
-
-    fields
-}
-
-/// Generate an XMP document from scratch with all managed namespaces declared.
-fn generate_from_scratch(sidecar: &XmpSidecar) -> String {
-    let mut xml = String::new();
-    xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    xml.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
-    xml.push_str("  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
-    xml.push_str("    <rdf:Description\n");
-    xml.push_str("      xmlns:dc=\"http://purl.org/dc/elements/1.1/\"\n");
-    xml.push_str("      xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"\n");
-    xml.push_str("      xmlns:imgcull=\"http://imgcull.dev/ns/1.0/\"");
-
-    if let Some(rating) = sidecar.rating {
-        xml.push_str(&format!("\n      xmp:Rating=\"{rating}\""));
-    }
-
-    xml.push_str(">\n");
-    xml.push_str(&build_imgcull_fields(sidecar));
-    xml.push_str("    </rdf:Description>\n");
-    xml.push_str("  </rdf:RDF>\n");
-    xml.push_str("</x:xmpmeta>\n");
-    xml
-}
-
-/// Merge imgcull-managed fields into an existing XMP document string.
-///
-/// Preserves all content not managed by imgcull (e.g. Lightroom `lr:*`,
-/// `photoshop:*`, `tiff:*` fields).  The strategy is:
-///
-/// 1. Strip any existing `xmp:Rating` attribute from `<rdf:Description`.
-/// 2. Remove existing `<dc:description>` blocks and `<imgcull:*>` elements.
-/// 3. Inject the new imgcull fields just before `</rdf:Description>`.
-/// 4. Ensure the `xmlns:imgcull` namespace is declared on `<rdf:Description`.
-fn merge_into_existing(base: &str, sidecar: &XmpSidecar) -> String {
-    let mut xml = base.to_string();
-
-    // --- Strip existing xmp:Rating attribute ---
-    remove_attribute(&mut xml, "xmp:Rating");
-
-    // --- Inject xmp:Rating as an attribute if set ---
-    if let Some(rating) = sidecar.rating {
-        // Find the closing `>` of the opening <rdf:Description ... > tag.
-        // The tag may end with `>` or `/>`, but in our generated XML it always
-        // ends with `>`.  We search for the first `>` after `<rdf:Description`.
-        if let Some(desc_pos) = xml.find("<rdf:Description")
-            && let Some(rel_close) = xml[desc_pos..].find('>')
+    pub fn set_scores(&mut self, scores: &ScoringResult, overall: f64, model: &str) {
+        self.overall_score = Some(overall);
+        self.scored_by = Some(model.into());
+        self.scored_at = Some(Utc::now().to_rfc3339());
+        self.dimensions_list = Some(crate::scoring::DIMENSIONS.join(","));
+        self.dimension_scores = crate::scoring::DIMENSIONS
+            .iter()
+            .filter_map(|d| scores.get(d).map(|v| (d.to_string(), v)))
+            .collect();
+        for name in ["score", "scored_by", "scored_at", "dimensions"]
+            .into_iter()
+            .chain(crate::scoring::DIMENSIONS.iter().copied())
         {
-            let close_pos = desc_pos + rel_close;
-            // Insert the attribute before the `>`.
-            let attr = format!("\n      xmp:Rating=\"{rating}\"");
-            xml.insert_str(close_pos, &attr);
+            self.dirty.insert(name.into());
         }
     }
-
-    // --- Remove existing dc:description and dc:subject blocks ---
-    remove_element_block(&mut xml, "<dc:description>", "</dc:description>");
-    remove_element_block(&mut xml, "<dc:subject>", "</dc:subject>");
-
-    // --- Remove existing imgcull:* elements ---
-    // We iteratively remove any element whose tag starts with `<imgcull:`.
-    // Every iteration must remove at least the opening tag, otherwise a tag
-    // with no matching close (e.g. self-closing `<imgcull:foo/>`) would make
-    // this loop spin forever.  The prefix before each removal contains no
-    // further matches, so the search resumes from the removal point instead
-    // of rescanning the document from the top.
-    let mut search_from = 0;
-    while let Some(rel_start) = xml[search_from..].find("<imgcull:") {
-        let start = search_from + rel_start;
-        // Find the tag name to build the matching close tag.
-        let tag_start = start + 1; // skip '<'
-        let tag_end = xml[tag_start..]
-            .find(['>', '/', ' ', '\n', '\r'])
-            .map(|p| tag_start + p)
-            .unwrap_or(xml.len());
-        let close = format!("</{}>", &xml[tag_start..tag_end]);
-
-        let Some(open_close) = xml[start..].find('>').map(|p| start + p) else {
-            break; // no `>` at all — malformed beyond repair, stop
+    fn field(&self, name: &str) -> (String, String) {
+        let (prefix, ns) = match name {
+            "description" | "subject" => ("dc", DC),
+            "Rating" | "Label" => ("xmp", XMP),
+            _ => ("imgcull", IC),
         };
-        let end = if xml[..open_close].ends_with('/') {
-            open_close + 1 // self-closing tag: `<imgcull:foo/>`
-        } else if let Some(rel) = xml[open_close..].find(&close) {
-            open_close + rel + close.len()
+        let value = match name {
+            "description" => format!(
+                "<rdf:Alt xmlns:rdf=\"{RDF}\"><rdf:li xml:lang=\"x-default\">{}</rdf:li></rdf:Alt>",
+                escape(self.description.as_deref().unwrap_or(""))
+            ),
+            "subject" => format!(
+                "<rdf:Bag xmlns:rdf=\"{RDF}\">{}</rdf:Bag>",
+                self.keywords
+                    .iter()
+                    .map(|k| format!("<rdf:li>{}</rdf:li>", escape(k)))
+                    .collect::<String>()
+            ),
+            "Rating" => self.rating.unwrap_or(0).to_string(),
+            "Label" => escape(self.label.as_deref().unwrap_or("")).into_owned(),
+            "score" => format!("{:.2}", self.overall_score.unwrap_or(0.0)),
+            "scored_at" => escape(self.scored_at.as_deref().unwrap_or("")).into_owned(),
+            "scored_by" => escape(self.scored_by.as_deref().unwrap_or("")).into_owned(),
+            "dimensions" => escape(self.dimensions_list.as_deref().unwrap_or("")).into_owned(),
+            "original_filename" => {
+                escape(self.original_filename.as_deref().unwrap_or("")).into_owned()
+            }
+            "scoring_response" => {
+                escape(self.scoring_response.as_deref().unwrap_or("")).into_owned()
+            }
+            _ => self
+                .dimension_scores
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, v)| format!("{v:.2}"))
+                .unwrap_or_default(),
+        };
+        (
+            ns.into(),
+            format!("<{prefix}:{name} xmlns:{prefix}=\"{ns}\">{value}</{prefix}:{name}>"),
+        )
+    }
+    /// Only explicitly modified properties change; all other bytes survive unchanged.
+    pub fn to_xml(&self) -> Result<String> {
+        if self.dirty.contains("score") {
+            ensure!(self.has_scores(), "refusing incomplete or invalid scores");
+        }
+        let base = self.raw_content.as_deref().unwrap_or(EMPTY);
+        if self.dirty.is_empty() {
+            return Ok(base.to_string());
+        }
+        let doc = Document::parse(base)?;
+        let node = description_node(&doc)?;
+        let mut edits = Vec::new();
+        let mut fields = String::new();
+        for name in &self.dirty {
+            let (ns, fragment) = self.field(name);
+            property(node, &ns, name)?;
+            for a in node
+                .attributes()
+                .filter(|a| a.namespace() == Some(ns.as_str()) && a.name() == name)
+            {
+                edits.push((a.range(), String::new()));
+            }
+            for n in node
+                .children()
+                .filter(|n| n.has_tag_name((ns.as_str(), name.as_str())))
+            {
+                edits.push((n.range(), String::new()));
+            }
+            fields.push_str(&fragment);
+        }
+        let range = node.range();
+        let raw_node = &base[range.clone()];
+        if raw_node.ends_with("/>") {
+            let qname = raw_node[1..]
+                .split(|c: char| c.is_whitespace() || c == '/' || c == '>')
+                .next()
+                .unwrap();
+            edits.push((range.end - 2..range.end, format!(">{fields}</{qname}>")));
         } else {
-            // Unclosed element: drop the open tag, keep progressing.  Purely
-            // defensive — read-time validation rejects unbalanced XML before
-            // raw_content is ever set.
-            open_close + 1
-        };
-        search_from = remove_range_trimmed(&mut xml, start, end);
+            let pos = range.start + raw_node.rfind("</").context("missing Description end")?;
+            edits.push((pos..pos, fields));
+        }
+        edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+        let mut xml = base.to_string();
+        for (range, value) in edits {
+            xml.replace_range(range, &value);
+        }
+        let check = Document::parse(&xml).context("generated XMP failed validation")?;
+        let target = description_node(&check)?;
+        for name in &self.dirty {
+            let (ns, _) = self.field(name);
+            ensure!(
+                property(target, &ns, name)?.is_some(),
+                "generated XMP property missing"
+            );
+        }
+        if self.dirty.contains("Rating") {
+            ensure!(self.rating.is_some_and(|r| r <= 5), "rating must be 0..=5");
+        }
+        Ok(xml)
     }
-
-    // --- Ensure required namespace declarations are present ---
-    ensure_namespace(
-        &mut xml,
-        "xmlns:imgcull",
-        "xmlns:imgcull=\"http://imgcull.dev/ns/1.0/\"",
-    );
-    if sidecar.description.is_some() || !sidecar.keywords.is_empty() {
-        ensure_namespace(
-            &mut xml,
-            "xmlns:dc",
-            "xmlns:dc=\"http://purl.org/dc/elements/1.1/\"",
-        );
-    }
-    if sidecar.rating.is_some() {
-        ensure_namespace(
-            &mut xml,
-            "xmlns:xmp",
-            "xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"",
-        );
-    }
-
-    // --- Insert our new fields just before </rdf:Description> ---
-    let new_fields = build_imgcull_fields(sidecar);
-    if !new_fields.is_empty()
-        && let Some(close_pos) = xml.find("</rdf:Description>")
-    {
-        xml.insert_str(close_pos, &new_fields);
-    }
-
-    xml
-}
-
-/// Inject `decl` onto `<rdf:Description` if `check` attribute is not already present.
-fn ensure_namespace(xml: &mut String, check: &str, decl: &str) {
-    if xml.contains(check) {
-        return;
-    }
-    if let Some(desc_pos) = xml.find("<rdf:Description")
-        && let Some(rel_close) = xml[desc_pos..].find('>')
-    {
-        xml.insert_str(desc_pos + rel_close, &format!("\n      {decl}"));
+    pub fn write(&self, path: &Path) -> Result<()> {
+        let xml = self.to_xml()?;
+        crate::metadata_transaction::write(
+            path,
+            self.raw_content.as_deref().map(str::as_bytes),
+            xml.as_bytes(),
+        )
     }
 }
-
-/// Remove an XML element block identified by its literal open and close tags, in place.
-fn remove_element_block(xml: &mut String, open: &str, close: &str) {
-    if let Some(start) = xml.find(open)
-        && let Some(rel_end) = xml[start..].find(close)
-    {
-        remove_range_trimmed(xml, start, start + rel_end + close.len());
-    }
-}
-
-/// Remove `xml[start..end]` in place, also consuming a trailing newline and
-/// the leading indentation when the removed range starts its own line, so
-/// that the surrounding whitespace is not left dangling.
-///
-/// Returns the index where the removal actually began (after whitespace
-/// trimming), which is where the text that followed `end` now starts —
-/// callers scanning for repeated matches can resume searching from it.
-fn remove_range_trimmed(xml: &mut String, start: usize, end: usize) -> usize {
-    let end = if xml[end..].starts_with('\n') {
-        end + 1
-    } else {
-        end
-    };
-    let line_start = xml[..start].rfind('\n').map(|p| p + 1).unwrap_or(start);
-    let start = if xml[line_start..start].chars().all(char::is_whitespace) {
-        line_start
-    } else {
-        start
-    };
-    xml.replace_range(start..end, "");
-    start
-}
-
-/// Remove an XML attribute `name="value"` from a string in place (including leading
-/// whitespace / newline before the attribute name).
-fn remove_attribute(xml: &mut String, attr_name: &str) {
-    let search = format!("{attr_name}=\"");
-    if let Some(start) = xml.find(&search)
-        && let Some(rel_end) = xml[start + search.len()..].find('"')
-    {
-        let end = start + search.len() + rel_end + 1; // +1 for closing "
-        // Strip leading whitespace/newline before the attribute.
-        let stripped_start = xml[..start]
-            .rfind(|c: char| !c.is_whitespace())
-            .map(|p| p + 1)
-            .unwrap_or(start);
-        xml.replace_range(stripped_start..end, "");
-    }
-}
-
-/// Copy an existing `.xmp` sidecar to `.xmp.bak`.
+/// Keep the first legacy backup immutable. Transaction snapshots preserve later versions.
 pub fn backup_sidecar(path: &Path) -> Result<()> {
+    use std::io::Write;
     let backup = path.with_extension("xmp.bak");
-    fs::copy(path, &backup)
-        .with_context(|| format!("backing up {} to {}", path.display(), backup.display()))?;
-    Ok(())
-}
-
-/// Extract text content between `<tag>` and `</tag>`.
-///
-/// Returns a borrowed slice of `content`; callers that need ownership convert
-/// explicitly, so the many extractions in [`XmpSidecar::read`] that only
-/// parse or inspect the text allocate nothing.
-fn extract_element<'a>(content: &'a str, tag: &str) -> Option<&'a str> {
-    let open = format!("<{tag}>");
-    let close = format!("</{tag}>");
-    let start = content.find(&open)?;
-    let text_start = start + open.len();
-    let end = content[text_start..].find(&close)?;
-    Some(&content[text_start..text_start + end])
+    let bytes = fs::read(path)?;
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut output = tempfile::NamedTempFile::new_in(parent)?;
+    output.write_all(&bytes)?;
+    output.as_file().sync_all()?;
+    match output.persist_noclobber(backup) {
+        Ok(_) => Ok(()),
+        Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e.error.into()),
+    }
 }
