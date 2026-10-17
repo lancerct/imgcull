@@ -3,18 +3,18 @@
 pub mod cli;
 pub mod config;
 pub mod discovery;
-pub mod llm;
-pub mod integrity;
-pub mod imaging;
 pub mod evidence;
+pub mod imaging;
+pub mod integrity;
+pub mod llm;
 pub mod metadata_transaction;
 pub mod pipeline;
 pub mod preprocessing;
 pub mod report;
 pub mod retry;
 pub mod scoring;
-pub mod summary;
 mod storage;
+pub mod summary;
 pub mod xmp;
 
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};

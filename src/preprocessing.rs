@@ -1,8 +1,8 @@
 //! Overview adapter for legacy model calls; native decoding lives in imaging.
+use crate::imaging::{NativePhoto, encode};
 use anyhow::Result;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use std::path::Path;
-use crate::imaging::{NativePhoto, encode};
 
 /// An overview payload. This does not certify that native details were reviewed.
 pub struct PreprocessedImage {

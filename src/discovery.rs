@@ -16,7 +16,12 @@ pub fn photo_key(path: &Path) -> anyhow::Result<PathBuf> {
     let canonical = path.canonicalize()?;
     let target = sidecar_for_image(&canonical);
     #[cfg(windows)]
-    let target = PathBuf::from(target.to_str().ok_or_else(|| anyhow::anyhow!("non-Unicode path"))?.to_lowercase());
+    let target = PathBuf::from(
+        target
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("non-Unicode path"))?
+            .to_lowercase(),
+    );
     Ok(target)
 }
 

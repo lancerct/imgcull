@@ -41,11 +41,11 @@ Required checks: cargo fmt --check; cargo build --locked; cargo test --locked --
 ## Evidence interface (this iteration)
 
 ```text
-imgcull prepare PHOTO --output NEW_DIRECTORY --regions REQUESTS.json --min-pixels 40000000
+imgcull prepare PHOTO --output NEW_DIRECTORY --regions REQUESTS.json --min-pixels 45000000
 imgcull verify-evidence DIRECTORY
 ```
 
-The 40-million-pixel floor is a conservative default for the user's approximately 45MP camera. It is an explicit source-size requirement, not an upscaling target. Older/lower-resolution cameras require their actual intended floor; 0 means no extra pixel floor, while still fully decoding the real source.
+The 45-million-pixel floor is a conservative default for the user's approximately 45MP camera. It is an explicit source-size requirement, not an upscaling target. Older/lower-resolution cameras require their actual intended floor; 0 means no extra pixel floor, while still fully decoding the real source.
 
 A RAW/JPEG pair uses its JPEG companion when it fully decodes and meets the floor. An undersized/unreadable JPEG causes full RAW development; failure stops preparation. RAW uses rawler's default sRGB development, not Lightroom's develop recipe. Camera-specific color matching and camera-specific RAW validation remain separate checks.
 
@@ -63,5 +63,7 @@ The output contains evidence.json, overview.jpg, and unscaled detail-NNNN.png fi
 CLI output contains no image base64 or repeated review history. This reduces repeated text and enables cached evidence reuse; it does not reduce the visual evidence needed for a reliable decision, and it is not a measured token-savings claim. Local-model accuracy and context behavior still require evaluation.
 
 ## Remaining work
+
+Native geometry and focus samples do not certify calibrated color. RenderInfo records unmanaged-raster or raw-default-srgb. Raster ICC conversion is not implemented; color-managed artistic/edit assessment must be added before final color judgments.
 
 Automatic subject-region proposals; actual native-detail model review and coverage records; burst/stack protection; user-calibrated 3/4/5-star and red/green policy; durable job progress and resumable review ledger; plan/apply integration; independent JPEG embedded metadata synchronization; Lightroom verification; and final skill packaging.

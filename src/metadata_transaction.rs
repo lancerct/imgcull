@@ -1,8 +1,8 @@
 //! Recoverable metadata replacement. No photo pixels are modified.
-use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize};
 use crate::integrity::digest;
 use crate::storage::write_new as snapshot;
+use anyhow::{Context, Result, ensure};
+use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};

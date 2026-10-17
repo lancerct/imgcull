@@ -57,8 +57,13 @@ fn test_preprocess_small_jpeg_is_fully_decoded() {
     img.save(&path).unwrap();
 
     let result = preprocess_image(&path).unwrap();
-    let bytes = base64::prelude::BASE64_STANDARD.decode(&result.base64).unwrap();
-    assert_eq!(image::load_from_memory(&bytes).unwrap().dimensions(), (800, 600));
+    let bytes = base64::prelude::BASE64_STANDARD
+        .decode(&result.base64)
+        .unwrap();
+    assert_eq!(
+        image::load_from_memory(&bytes).unwrap().dimensions(),
+        (800, 600)
+    );
     assert!(!result.was_resized);
 }
 

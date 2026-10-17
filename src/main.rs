@@ -39,8 +39,12 @@ async fn main() -> Result<()> {
                 Some(path) => serde_json::from_slice(&std::fs::read(path)?)?,
                 None => Vec::new(),
             };
-            let evidence = imgcull::evidence::prepare(&args.photo, &args.output, &regions, args.min_pixels)?;
-            println!("{}", serde_json::to_string(&evidence.summary(&args.output))?);
+            let evidence =
+                imgcull::evidence::prepare(&args.photo, &args.output, &regions, args.min_pixels)?;
+            println!(
+                "{}",
+                serde_json::to_string(&evidence.summary(&args.output))?
+            );
             Ok(())
         }
         Commands::VerifyEvidence { directory } => {

@@ -52,6 +52,8 @@ pub struct RenderInfo {
     pub source_sha256: String,
     /// Raster or full RAW development, never an embedded RAW preview.
     pub decoding: String,
+    /// Color handling is explicit; raster ICC conversion is not implemented.
+    pub color_status: String,
     /// Encoded dimensions before EXIF rotation.
     pub encoded_width: u32,
     /// Encoded height before EXIF rotation.
@@ -78,12 +80,17 @@ impl NativePhoto {
         ensure!(min_pixels <= MAX_PIXELS, "requested pixel floor exceeds renderer limit");
         let identity = identity.canonicalize()?;
         let preferred = discovery::review_source(&identity);
-        match Self::decode(&identity, &preferred, min_pixels) {
+        match Self::attempt_decode(&identity, &preferred, min_pixels) {
             Ok(photo) => Ok(photo),
-            Err(error) if preferred != identity => Self::decode(&identity, &identity, min_pixels)
+            Err(error) if preferred != identity => Self::attempt_decode(&identity, &identity, min_pixels)
                 .with_context(|| format!("JPEG companion could not meet review requirements: {error:#}; full RAW fallback failed")),
             Err(error) => Err(error),
         }
+    }
+
+    fn attempt_decode(identity: &Path, source: &Path, min_pixels: u64) -> Result<Self> {
+        std::panic::catch_unwind(|| Self::decode(identity, source, min_pixels))
+            .map_err(|_| anyhow::anyhow!("native decoder panicked on this source; refusing preview fallback"))?
     }
 
     fn decode(identity: &Path, source: &Path, min_pixels: u64) -> Result<Self> {
@@ -102,17 +109,19 @@ impl NativePhoto {
         } else {
             ensure!(discovery::is_supported(source), "unsupported native source");
             let hash = integrity::file_digest(source)?;
-            let metadata = rawler::analyze::analyze_metadata(source)?;
-            let Some(rawler::analyze::AnalyzerData::Metadata(metadata)) = metadata.data else {
-                anyhow::bail!("RAW metadata unavailable");
-            };
-            let raw_area = metadata.raw_params.raw_width as u64 * metadata.raw_params.raw_height as u64;
+            let raw = rawler::analyze::extract_raw_pixels(source, &rawler::decoders::RawDecodeParams::default())
+                .context("full RAW decode failed; embedded previews are not a fallback")?;
+            ensure!(!matches!(raw.photometric, rawler::rawimage::RawPhotometricInterpretation::BlackIsZero),
+                "this rawler version does not support BlackIsZero RAW development");
+            let raw_area = (raw.width as u64).checked_mul(raw.height as u64).context("invalid RAW dimensions")?;
             ensure!(raw_area <= MAX_PIXELS, "RAW exceeds renderer pixel limit");
-            let value = metadata.raw_metadata.exif.orientation.unwrap_or(1);
+            let value = raw.orientation.to_u16();
+            // Rawler treats absent/unknown orientation as no transform.
+            let value = if value == 0 { 1 } else { value };
             let orientation = u8::try_from(value).ok().and_then(Orientation::from_exif)
                 .context("unsupported RAW orientation")?;
-            let pixels = rawler::analyze::raw_to_srgb(source, &rawler::decoders::RawDecodeParams::default())
-                .context("full RAW development failed; embedded previews are not a fallback")?;
+            let pixels = rawler::imgop::develop::RawDevelop::default().develop_intermediate(&raw)?
+                .to_dynamic_image().context("full RAW development produced no raster")?;
             (pixels, orientation, hash, "full-raw-srgb")
         };
         let (encoded_width, encoded_height) = pixels.dimensions();
@@ -123,6 +132,7 @@ impl NativePhoto {
         Ok(Self {
             info: RenderInfo { renderer: RENDERER.into(), identity: discovery::photo_key(identity)?,
                 source: source.to_path_buf(), source_sha256: hash, decoding: decoding.into(),
+                color_status: if raster { "unmanaged-raster" } else { "raw-default-srgb" }.into(),
                 encoded_width, encoded_height, orientation: orientation.to_exif(), width, height },
             pixels,
         })
@@ -148,7 +158,12 @@ impl NativePhoto {
 /// Encode a derived view; shared by the provider adapter and evidence exporter.
 pub fn encode(image: &DynamicImage, format: ImageFormat) -> Result<Vec<u8>> {
     let mut buffer = Cursor::new(Vec::new());
-    image.write_to(&mut buffer, format)?;
+    if format == ImageFormat::Jpeg {
+        // RAW development can produce 16-bit RGB/gray; JPEG payloads are 8-bit.
+        DynamicImage::ImageRgb8(image.to_rgb8()).write_to(&mut buffer, format)?;
+    } else {
+        image.write_to(&mut buffer, format)?;
+    }
     Ok(buffer.into_inner())
 }
 

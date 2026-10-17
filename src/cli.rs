@@ -48,8 +48,8 @@ pub struct PrepareArgs {
     /// JSON array of detail requests in normalized native pixel coordinates.
     #[arg(long)]
     pub regions: Option<PathBuf>,
-    /// Minimum decoded native area (40MP default for this user's 45MP camera).
-    #[arg(long, default_value_t = 40_000_000)]
+    /// Minimum decoded native area (45MP default for this user's 45MP camera).
+    #[arg(long, default_value_t = 45_000_000)]
     pub min_pixels: u64,
 }
 
