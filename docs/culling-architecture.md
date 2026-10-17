@@ -28,6 +28,7 @@ The existing score/describe commands remain a legacy overview pipeline. Their ou
 - storage owns immutable-file creation and flush behavior, shared by evidence publication and transaction snapshots. Publication policy belongs to the caller.
 - xmp owns namespace-aware byte-preserving property edits. metadata_transaction alone owns metadata locking, conflict detection, backup and rollback.
 - llm owns provider transport. Prompts describe photographic judgment, not filesystem mechanics.
+- lightroom verifies trial current-effect exports with the existing full decoder and hashes. The thin Lua bridge delegates rendering to LR, without photo pairing, review progress, policy or XMP logic. Trial artifacts alone never unlock current-appearance review; see [LR export contract](lightroom-export.md).
 - Future review records and plans must reference evidence IDs and source hashes; they must not embed image base64, whole historical conversations, or duplicate XMP documents.
 
 Use small concrete modules and structs. Do not introduce generic workflow frameworks or a provider-specific state machine. Add an abstraction when two real callers need identical behavior; do not hide different policies behind a shared helper merely because they both write files.

@@ -6,6 +6,7 @@ pub mod discovery;
 pub mod evidence;
 pub mod imaging;
 pub mod integrity;
+pub mod lightroom;
 pub mod llm;
 pub mod metadata_transaction;
 pub mod pipeline;

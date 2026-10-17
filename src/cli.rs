@@ -15,6 +15,8 @@ pub struct Cli {
 /// Available subcommands.
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    /// Fully verify trial LR current-effect exports; no visual verdict or metadata writes.
+    VerifyLightroomExport { directory: PathBuf },
     /// Analyze images: generate descriptions and quality scores
     Score(ProcessArgs),
     /// Generate scene descriptions only (no scoring)

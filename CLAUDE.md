@@ -30,4 +30,5 @@ Every iteration must identify its interfaces, shared foundations reused, test ev
 
 - [Provider implementation notes](docs/provider-implementation.md): provider traits, Rig 0.42 API details and legacy request behavior. Load only for transport changes.
 - [Metadata safety and recovery](docs/lightroom-metadata-safety.md): conflict checks, snapshots, rollback and Lightroom concurrency limits.
+- [LR current-effect export](docs/lightroom-export.md): trial plugin, immutable material contract, actual-LR validation still required; no policy bypass from a caller boolean or standalone export.
 - Rust 2024; configuration precedence is CLI > config file > defaults. API keys come from environment variables.
