@@ -220,7 +220,9 @@ fn load(directory: &Path) -> Result<Loaded> {
         "unsupported review schema/policy; keep old job unchanged and create a new job deliberately"
     );
     ensure!(job.job_id == job_checksum(&job)?, "job manifest changed");
-    if let Some(profile) = &job.calibration { calibration::verify(profile)?; }
+    if let Some(profile) = &job.calibration {
+        calibration::verify(profile)?;
+    }
     let ids: BTreeSet<_> = job.photos.iter().map(|p| &p.photo_id).collect();
     ensure!(
         !ids.is_empty() && ids.len() == job.photos.len(),
@@ -300,7 +302,12 @@ pub fn create(paths: &[PathBuf], output: &Path, min_pixels: u64) -> Result<Statu
 
 /// Create a job with an exact immutable personal preference snapshot.
 /// Existing jobs are never reinterpreted under a changed profile/policy.
-pub fn create_with_profile(paths: &[PathBuf], output: &Path, min_pixels: u64, profile: Option<&Path>) -> Result<Status> {
+pub fn create_with_profile(
+    paths: &[PathBuf],
+    output: &Path,
+    min_pixels: u64,
+    profile: Option<&Path>,
+) -> Result<Status> {
     let calibration = profile.map(calibration::load).transpose()?;
     ensure!(
         min_pixels <= crate::imaging::MAX_PIXELS,
@@ -358,7 +365,14 @@ pub fn context(directory: &Path, tags: &[String]) -> Result<calibration::ReviewC
     let root = store_root(directory)?;
     let _lock = storage::lock_file(&root.join("review.lock"))?;
     let loaded = load(&root)?;
-    calibration::context(loaded.job.calibration.as_ref().context("job has no calibration profile")?, tags)
+    calibration::context(
+        loaded
+            .job
+            .calibration
+            .as_ref()
+            .context("job has no calibration profile")?,
+        tags,
+    )
 }
 
 /// List a bounded page without loading images or repeating checkpoint history.
@@ -513,7 +527,11 @@ pub fn check(directory: &Path) -> Result<CheckReport> {
 }
 
 fn html(text: &str) -> String {
-    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 fn hold_text(code: &str) -> &str {
@@ -529,11 +547,17 @@ fn hold_text(code: &str) -> &str {
         "alternative_quality_unresolved_or_worse" => "替代照片更差，或尚未比较清楚",
         "redundancy_requires_reviewed_burst" => "尚未确认属于可比较的同组照片",
         "burst_requires_retained_representative" => "同组尚未确定保留的代表照片",
-        "redundancy_requires_equivalent_content_and_sound_retained_keeper" => "冗余片尚缺少内容等价、明确保留且没有严重技术问题的替代照片",
-        "replacement_must_be_better_retained_comparable_frame" => "替代照片必须属于同组、表现更好且已明确保留",
+        "redundancy_requires_equivalent_content_and_sound_retained_keeper" => {
+            "冗余片尚缺少内容等价、明确保留且没有严重技术问题的替代照片"
+        }
+        "replacement_must_be_better_retained_comparable_frame" => {
+            "替代照片必须属于同组、表现更好且已明确保留"
+        }
         "green_requires_concrete_edit" => "绿色建议需要说明具体可改善的地方",
         "red_score_too_high_or_missing" => "质量废片理由不足；内容冗余应单独说明替代关系",
-        "score_five_requires_better_retained_alternative" => "此分数下建议删除仍需明确更好的保留替代",
+        "score_five_requires_better_retained_alternative" => {
+            "此分数下建议删除仍需明确更好的保留替代"
+        }
         _ => code,
     }
 }
@@ -547,30 +571,90 @@ pub fn write_report(directory: &Path, output: &Path, offset: usize, limit: usize
     let root = store_root(directory)?;
     let _lock = storage::lock_file(&root.join("review.lock"))?;
     let loaded = load(&root)?;
-    let members: Vec<_> = loaded.latest.iter().map(|(id,r)| (id.as_str(), &r.observation)).collect();
+    let members: Vec<_> = loaded
+        .latest
+        .iter()
+        .map(|(id, r)| (id.as_str(), &r.observation))
+        .collect();
     let group_holds = policy::group_blockers(&members)?;
-    let mut page = format!("<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\"><title>选片复核草稿</title><style>body{{font:16px sans-serif;margin:24px}}main{{display:flex;flex-wrap:wrap;gap:16px}}article{{width:440px;border:1px solid #aaa;padding:12px}}img{{max-width:100%}}pre{{white-space:pre-wrap;overflow-wrap:anywhere}}.hold{{color:#954200}}</style><h1>选片复核草稿</h1><p>未写回任何标记。预览只供构图对比，不证明原尺寸清晰度。当前页从 {offset} 开始，最多 {limit} 张；页外照片和缺失观察未在本页全面复核。</p><details><summary>版本与追溯信息</summary><p>策略 {}；偏好版本 {}</p></details><pre class=\"hold\">组内待解决：{}</pre><main>", loaded.job.policy_version, html(loaded.job.calibration.as_ref().map_or("未绑定", |p| p.profile_id.as_str())), html(&group_holds.iter().map(|s| hold_text(s)).collect::<Vec<_>>().join("\n")));
+    let mut page = format!(
+        "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\"><title>选片复核草稿</title><style>body{{font:16px sans-serif;margin:24px}}main{{display:flex;flex-wrap:wrap;gap:16px}}article{{width:440px;border:1px solid #aaa;padding:12px}}img{{max-width:100%}}pre{{white-space:pre-wrap;overflow-wrap:anywhere}}.hold{{color:#954200}}</style><h1>选片复核草稿</h1><p>未写回任何标记。预览只供构图对比，不证明原尺寸清晰度。当前页从 {offset} 开始，最多 {limit} 张；页外照片和缺失观察未在本页全面复核。</p><details><summary>版本与追溯信息</summary><p>策略 {}；偏好版本 {}</p></details><pre class=\"hold\">组内待解决：{}</pre><main>",
+        loaded.job.policy_version,
+        html(
+            loaded
+                .job
+                .calibration
+                .as_ref()
+                .map_or("未绑定", |p| p.profile_id.as_str())
+        ),
+        html(
+            &group_holds
+                .iter()
+                .map(|s| hold_text(s))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    );
     for photo in loaded.job.photos.iter().skip(offset).take(limit) {
-        page.push_str(&format!("<article><h2>{}</h2><details><summary>照片追溯编号</summary><p>{}</p></details>", html(&photo.primary.file_name().unwrap_or_default().to_string_lossy()), html(&photo.photo_id)));
+        page.push_str(&format!(
+            "<article><h2>{}</h2><details><summary>照片追溯编号</summary><p>{}</p></details>",
+            html(
+                &photo
+                    .primary
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+            ),
+            html(&photo.photo_id)
+        ));
         if let Some(record) = loaded.latest.get(&photo.photo_id) {
             let validation = validate_record(photo, record, loaded.job.min_pixels)?;
             let bundle = evidence::verify(&record.evidence)?;
-            let view = bundle.views.iter().find(|v| v.id == "overview").context("overview missing")?;
+            let view = bundle
+                .views
+                .iter()
+                .find(|v| v.id == "overview")
+                .context("overview missing")?;
             let image = crate::imaging::NativePhoto::load(&record.evidence.join(&view.file), 0)?;
-            ensure!(image.info.source_sha256 == view.sha256, "report overview changed");
+            ensure!(
+                image.info.source_sha256 == view.sha256,
+                "report overview changed"
+            );
             let bytes = crate::imaging::encode(&image.overview(512)?, image::ImageFormat::Jpeg)?;
             let proposed = calibration::Expected::from(&record.observation.proposal);
             let action = match proposed.action.as_str() {
-                "retain" => "保留", "red" => "红色：质量问题", "redundant" => "红色：内容冗余", _ => "暂不标记",
+                "retain" => "保留",
+                "red" => "红色：质量问题",
+                "redundant" => "红色：内容冗余",
+                _ => "暂不标记",
             };
-            let stars = proposed.stars.map_or_else(|| "无星".into(), |n| format!("{n} 星"));
-            let target = proposed.keeper.as_deref().and_then(|id| loaded.job.photos.iter().find(|p| p.photo_id == id));
-            let keeper = target.map(|p| p.primary.file_name().unwrap_or_default().to_string_lossy().into_owned()).or(proposed.keeper.clone()).unwrap_or_default();
+            let stars = proposed
+                .stars
+                .map_or_else(|| "无星".into(), |n| format!("{n} 星"));
+            let target = proposed
+                .keeper
+                .as_deref()
+                .and_then(|id| loaded.job.photos.iter().find(|p| p.photo_id == id));
+            let keeper = target
+                .map(|p| {
+                    p.primary
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .or(proposed.keeper.clone())
+                .unwrap_or_default();
             page.push_str(&format!("<img alt=\"构图预览\" src=\"data:image/jpeg;base64,{}\"><p>组：{}</p><p>草稿：{}；{}；后期建议 {}</p><p>保留替代：{}</p><pre>{}</pre><pre>后期建议：{}</pre><pre class=\"hold\">待解决：{}</pre>", STANDARD.encode(bytes), html(&record.observation.group), action, stars, if proposed.green { "有" } else { "无" }, html(&keeper), html(&record.observation.reason), html(&record.observation.edits.join("\n")), html(&validation.blockers.iter().map(|s| hold_text(s)).collect::<Vec<_>>().join("\n"))));
             if let Some(comparison) = calibration::comparison(&record.observation.proposal) {
-                page.push_str(&format!("<pre>替代比较：{}</pre>", html(&comparison.reason)));
+                page.push_str(&format!(
+                    "<pre>替代比较：{}</pre>",
+                    html(&comparison.reason)
+                ));
             }
-        } else { page.push_str("<p class=\"hold\">尚未审阅</p>"); }
+        } else {
+            page.push_str("<p class=\"hold\">尚未审阅</p>");
+        }
         page.push_str("</article>");
     }
     page.push_str("</main></html>");

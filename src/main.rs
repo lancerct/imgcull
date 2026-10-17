@@ -18,38 +18,75 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::CalibrationPublish { input, output } => {
             let id = imgcull::calibration::publish(&input, &output)?;
-            println!("{}", serde_json::json!({"profile_id": id, "can_apply": false}));
+            println!(
+                "{}",
+                serde_json::json!({"profile_id": id, "can_apply": false})
+            );
             Ok(())
         }
         Commands::CalibrationContext { profile, tags } => {
             let profile = imgcull::calibration::load(&profile)?;
-            println!("{}", serde_json::to_string(&imgcull::calibration::context(&profile, &tags)?)?);
+            println!(
+                "{}",
+                serde_json::to_string(&imgcull::calibration::context(&profile, &tags)?)?
+            );
             Ok(())
         }
-        Commands::CalibrationEvaluate { profile, predictions, split } => {
+        Commands::CalibrationEvaluate {
+            profile,
+            predictions,
+            split,
+        } => {
             let profile = imgcull::calibration::load(&profile)?;
             let predictions = imgcull::calibration::read_json(&predictions)?;
             let report = imgcull::calibration::evaluate(&profile, &predictions, split)?;
             println!("{}", serde_json::to_string(&report)?);
-            anyhow::ensure!(report.passed, "calibration decisions differ; inspect the JSON discrepancies");
+            anyhow::ensure!(
+                report.passed,
+                "calibration decisions differ; inspect the JSON discrepancies"
+            );
             Ok(())
         }
-        Commands::CalibrationChallenge { profile, split, offset, limit } => {
+        Commands::CalibrationChallenge {
+            profile,
+            split,
+            offset,
+            limit,
+        } => {
             let profile = imgcull::calibration::load(&profile)?;
-            println!("{}", serde_json::to_string(&imgcull::calibration::challenge(&profile, split, offset, limit)?)?);
+            println!(
+                "{}",
+                serde_json::to_string(&imgcull::calibration::challenge(
+                    &profile, split, offset, limit
+                )?)?
+            );
             Ok(())
         }
         Commands::SuggestSimilar { bundles, distance } => {
-            println!("{}", serde_json::to_string(&imgcull::similarity::suggest(&bundles, distance)?)?);
+            println!(
+                "{}",
+                serde_json::to_string(&imgcull::similarity::suggest(&bundles, distance)?)?
+            );
             Ok(())
         }
         Commands::ReviewContext { directory, tags } => {
-            println!("{}", serde_json::to_string(&imgcull::review::context(&directory, &tags)?)?);
+            println!(
+                "{}",
+                serde_json::to_string(&imgcull::review::context(&directory, &tags)?)?
+            );
             Ok(())
         }
-        Commands::ReviewReport { directory, output, offset, limit } => {
+        Commands::ReviewReport {
+            directory,
+            output,
+            offset,
+            limit,
+        } => {
             imgcull::review::write_report(&directory, &output, offset, limit)?;
-            println!("{}", serde_json::json!({"report": output, "can_apply": false}));
+            println!(
+                "{}",
+                serde_json::json!({"report": output, "can_apply": false})
+            );
             Ok(())
         }
         Commands::VerifyLightroomExport { directory } => {
@@ -102,7 +139,12 @@ async fn main() -> Result<()> {
         } => {
             println!(
                 "{}",
-                serde_json::to_string(&imgcull::review::create_with_profile(&paths, &output, min_pixels, calibration.as_deref())?)?
+                serde_json::to_string(&imgcull::review::create_with_profile(
+                    &paths,
+                    &output,
+                    min_pixels,
+                    calibration.as_deref()
+                )?)?
             );
             Ok(())
         }

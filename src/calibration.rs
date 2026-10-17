@@ -1,9 +1,17 @@
 //! Immutable personal preferences and correction cases, not model training or
 //! a second review/progress store. Evaluation measures supplied decisions only.
-use crate::{integrity, policy::{Comparison, Proposal}, storage};
+use crate::{
+    integrity,
+    policy::{Comparison, Proposal},
+    storage,
+};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::{collections::{BTreeMap, BTreeSet}, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 /// Hard bound for local preference/control JSON; never contains image payloads.
 pub const MAX_BYTES: u64 = 2 * 1024 * 1024;
@@ -55,9 +63,16 @@ impl From<&Proposal> for Expected {
             Proposal::Leave => ("leave", None, None, false),
             Proposal::Retain { stars, green } => ("retain", None, *stars, *green),
             Proposal::Red { replacement } => ("red", replacement.clone(), None, false),
-            Proposal::Redundant { comparison } => ("redundant", Some(comparison.keeper.clone()), None, false),
+            Proposal::Redundant { comparison } => {
+                ("redundant", Some(comparison.keeper.clone()), None, false)
+            }
         };
-        Self { action: action.into(), keeper, stars, green }
+        Self {
+            action: action.into(),
+            keeper,
+            stars,
+            green,
+        }
     }
 }
 
@@ -135,13 +150,24 @@ pub struct Profile {
     pub cases: Vec<Case>,
 }
 
-fn text_ok(s: &str) -> bool { !s.trim().is_empty() && s.len() <= 4096 }
-fn id_ok(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 80 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+fn text_ok(s: &str) -> bool {
+    !s.trim().is_empty() && s.len() <= 4096
 }
-fn hash_ok(s: &str) -> bool { s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) }
+fn id_ok(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 80
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+fn hash_ok(s: &str) -> bool {
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
 fn tags_ok(tags: &[String]) -> bool {
-    tags.len() <= 16 && tags.iter().all(|s| id_ok(s)) && tags.iter().collect::<BTreeSet<_>>().len() == tags.len()
+    tags.len() <= 16
+        && tags.iter().all(|s| id_ok(s))
+        && tags.iter().collect::<BTreeSet<_>>().len() == tags.len()
 }
 fn checksum(profile: &Profile) -> Result<String> {
     let mut copy = profile.clone();
@@ -153,58 +179,138 @@ fn checksum(profile: &Profile) -> Result<String> {
 /// individual schemas, rather than silently accepting misspelled corrections.
 pub fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     let meta = fs::symlink_metadata(path)?;
-    ensure!(meta.is_file() && !meta.file_type().is_symlink() && meta.len() <= MAX_BYTES, "invalid/oversized calibration file");
+    ensure!(
+        meta.is_file() && !meta.file_type().is_symlink() && meta.len() <= MAX_BYTES,
+        "invalid/oversized calibration file"
+    );
     let bytes = fs::read(path)?;
-    ensure!(bytes.len() as u64 <= MAX_BYTES, "calibration file grew beyond limit");
+    ensure!(
+        bytes.len() as u64 <= MAX_BYTES,
+        "calibration file grew beyond limit"
+    );
     Ok(serde_json::from_slice(&bytes)?)
 }
 
 fn validate_expected(e: &Expected, ids: &BTreeSet<&str>) -> Result<()> {
-    ensure!(matches!(e.action.as_str(), "leave" | "retain" | "red" | "redundant"), "invalid expected action");
-    ensure!(e.stars.is_none_or(|n| (3..=5).contains(&n)), "invalid expected stars");
-    ensure!(e.action == "retain" || (e.stars.is_none() && !e.green), "only retain can have stars/green");
-    ensure!(e.keeper.is_none() || matches!(e.action.as_str(), "red" | "redundant"), "unexpected keeper");
-    ensure!(e.action != "redundant" || e.keeper.is_some(), "redundancy needs keeper");
-    ensure!(e.keeper.as_deref().is_none_or(|id| ids.contains(id)), "unknown case keeper");
+    ensure!(
+        matches!(e.action.as_str(), "leave" | "retain" | "red" | "redundant"),
+        "invalid expected action"
+    );
+    ensure!(
+        e.stars.is_none_or(|n| (3..=5).contains(&n)),
+        "invalid expected stars"
+    );
+    ensure!(
+        e.action == "retain" || (e.stars.is_none() && !e.green),
+        "only retain can have stars/green"
+    );
+    ensure!(
+        e.keeper.is_none() || matches!(e.action.as_str(), "red" | "redundant"),
+        "unexpected keeper"
+    );
+    ensure!(
+        e.action != "redundant" || e.keeper.is_some(),
+        "redundancy needs keeper"
+    );
+    ensure!(
+        e.keeper.as_deref().is_none_or(|id| ids.contains(id)),
+        "unknown case keeper"
+    );
     Ok(())
 }
 
 fn validate_outcome(outcome: &BTreeMap<String, Expected>, ids: &BTreeSet<&str>) -> Result<()> {
-    ensure!(outcome.len() == ids.len() && outcome.keys().all(|id| ids.contains(id.as_str())), "alternative must cover the complete group");
+    ensure!(
+        outcome.len() == ids.len() && outcome.keys().all(|id| ids.contains(id.as_str())),
+        "alternative must cover the complete group"
+    );
     for (id, expected) in outcome {
         validate_expected(expected, ids)?;
         if let Some(keeper) = &expected.keeper {
-            ensure!(keeper != id && outcome.get(keeper).is_some_and(|e| e.action == "retain"), "case keeper must be directly retained, not a cycle");
+            ensure!(
+                keeper != id && outcome.get(keeper).is_some_and(|e| e.action == "retain"),
+                "case keeper must be directly retained, not a cycle"
+            );
         }
     }
     Ok(())
 }
 
 fn validate(profile: &Profile) -> Result<()> {
-    ensure!(profile.schema == 1 && text_ok(&profile.change), "invalid calibration schema/change");
-    ensure!(profile.parent_id.as_deref().is_none_or(hash_ok), "invalid parent profile ID");
-    ensure!(profile.rules.len() <= 64 && (1..=128).contains(&profile.cases.len()), "calibration size limit");
+    ensure!(
+        profile.schema == 1 && text_ok(&profile.change),
+        "invalid calibration schema/change"
+    );
+    ensure!(
+        profile.parent_id.as_deref().is_none_or(hash_ok),
+        "invalid parent profile ID"
+    );
+    ensure!(
+        profile.rules.len() <= 64 && (1..=128).contains(&profile.cases.len()),
+        "calibration size limit"
+    );
     let mut rule_ids = BTreeSet::new();
     for rule in &profile.rules {
-        ensure!(id_ok(&rule.id) && rule_ids.insert(&rule.id) && tags_ok(&rule.tags) && text_ok(&rule.text), "invalid/duplicate rule");
+        ensure!(
+            id_ok(&rule.id)
+                && rule_ids.insert(&rule.id)
+                && tags_ok(&rule.tags)
+                && text_ok(&rule.text),
+            "invalid/duplicate rule"
+        );
     }
     let mut case_ids = BTreeSet::new();
     for case in &profile.cases {
-        ensure!(id_ok(&case.id) && case_ids.insert(&case.id) && tags_ok(&case.tags) && !case.tags.is_empty(), "invalid/duplicate case");
-        ensure!(case.evidence_ids.len() <= 32 && case.evidence_ids.iter().all(|id| hash_ok(id)) && case.evidence_ids.iter().collect::<BTreeSet<_>>().len() == case.evidence_ids.len(), "invalid case evidence references");
-        ensure!(matches!(case.origin.as_str(), "user_correction" | "user_preference" | "synthetic_counterexample") && text_ok(&case.lesson), "invalid case origin/lesson");
+        ensure!(
+            id_ok(&case.id)
+                && case_ids.insert(&case.id)
+                && tags_ok(&case.tags)
+                && !case.tags.is_empty(),
+            "invalid/duplicate case"
+        );
+        ensure!(
+            case.evidence_ids.len() <= 32
+                && case.evidence_ids.iter().all(|id| hash_ok(id))
+                && case.evidence_ids.iter().collect::<BTreeSet<_>>().len()
+                    == case.evidence_ids.len(),
+            "invalid case evidence references"
+        );
+        ensure!(
+            matches!(
+                case.origin.as_str(),
+                "user_correction" | "user_preference" | "synthetic_counterexample"
+            ) && text_ok(&case.lesson),
+            "invalid case origin/lesson"
+        );
         ensure!((1..=16).contains(&case.frames.len()), "case frame limit");
         let ids: BTreeSet<_> = case.frames.iter().map(|f| f.id.as_str()).collect();
-        ensure!(ids.len() == case.frames.len() && ids.iter().all(|id| id_ok(id)), "invalid/duplicate frame");
+        ensure!(
+            ids.len() == case.frames.len() && ids.iter().all(|id| id_ok(id)),
+            "invalid/duplicate frame"
+        );
         for frame in &case.frames {
-            ensure!((1..=16).contains(&frame.facts.len()) && frame.facts.iter().all(|s| text_ok(s)), "invalid case facts");
+            ensure!(
+                (1..=16).contains(&frame.facts.len()) && frame.facts.iter().all(|s| text_ok(s)),
+                "invalid case facts"
+            );
             validate_expected(&frame.expected, &ids)?;
-            if let Some(previous) = &frame.previous { validate_expected(previous, &ids)?; }
+            if let Some(previous) = &frame.previous {
+                validate_expected(previous, &ids)?;
+            }
         }
-        let canonical = case.frames.iter().map(|f| (f.id.clone(), f.expected.clone())).collect();
+        let canonical = case
+            .frames
+            .iter()
+            .map(|f| (f.id.clone(), f.expected.clone()))
+            .collect();
         validate_outcome(&canonical, &ids)?;
-        ensure!(case.alternatives.len() <= 4, "too many acceptable group alternatives");
-        for alternative in &case.alternatives { validate_outcome(alternative, &ids)?; }
+        ensure!(
+            case.alternatives.len() <= 4,
+            "too many acceptable group alternatives"
+        );
+        for alternative in &case.alternatives {
+            validate_outcome(alternative, &ids)?;
+        }
     }
     Ok(())
 }
@@ -212,11 +318,17 @@ fn validate(profile: &Profile) -> Result<()> {
 /// Validate and publish a new immutable profile; never replaces an old version.
 pub fn publish(input: &Path, output: &Path) -> Result<String> {
     let mut profile: Profile = read_json(input)?;
-    ensure!(profile.profile_id.is_empty(), "publish expects a draft with empty profile_id");
+    ensure!(
+        profile.profile_id.is_empty(),
+        "publish expects a draft with empty profile_id"
+    );
     validate(&profile)?;
     profile.profile_id = checksum(&profile)?;
     let bytes = serde_json::to_vec_pretty(&profile)?;
-    ensure!(bytes.len() as u64 <= MAX_BYTES, "published profile exceeds size limit");
+    ensure!(
+        bytes.len() as u64 <= MAX_BYTES,
+        "published profile exceeds size limit"
+    );
     storage::write_new(output, &bytes)?;
     Ok(profile.profile_id)
 }
@@ -231,7 +343,10 @@ pub fn load(path: &Path) -> Result<Profile> {
 /// Check an embedded immutable profile as well as a standalone one.
 pub fn verify(profile: &Profile) -> Result<()> {
     validate(profile)?;
-    ensure!(hash_ok(&profile.profile_id) && profile.profile_id == checksum(profile)?, "profile changed or is unpublished");
+    ensure!(
+        hash_ok(&profile.profile_id) && profile.profile_id == checksum(profile)?,
+        "profile changed or is unpublished"
+    );
     Ok(())
 }
 
@@ -252,13 +367,37 @@ pub struct ReviewContext {
 /// reviewer input, not an automatic scene classifier or a safety-policy bypass.
 pub fn context(profile: &Profile, tags: &[String]) -> Result<ReviewContext> {
     verify(profile)?;
-    ensure!(tags_ok(tags) && !tags.is_empty(), "provide 1..=16 unique scene tags");
+    ensure!(
+        tags_ok(tags) && !tags.is_empty(),
+        "provide 1..=16 unique scene tags"
+    );
     let matches = |wanted: &[String]| wanted.is_empty() || wanted.iter().any(|t| tags.contains(t));
-    let rules: Vec<_> = profile.rules.iter().filter(|r| matches(&r.tags)).cloned().collect();
-    let examples: Vec<_> = profile.cases.iter().filter(|c| c.split == Split::Teaching && matches(&c.tags)).cloned().collect();
-    ensure!(rules.len() <= 16 && examples.len() <= 8, "context too broad; narrow tags or curate profile");
-    let context = ReviewContext { profile_id: profile.profile_id.clone(), rules, examples, can_apply: false };
-    ensure!(serde_json::to_vec(&context)?.len() <= MAX_CONTEXT_BYTES, "context exceeds byte budget; curate shorter rules/cases");
+    let rules: Vec<_> = profile
+        .rules
+        .iter()
+        .filter(|r| matches(&r.tags))
+        .cloned()
+        .collect();
+    let examples: Vec<_> = profile
+        .cases
+        .iter()
+        .filter(|c| c.split == Split::Teaching && matches(&c.tags))
+        .cloned()
+        .collect();
+    ensure!(
+        rules.len() <= 16 && examples.len() <= 8,
+        "context too broad; narrow tags or curate profile"
+    );
+    let context = ReviewContext {
+        profile_id: profile.profile_id.clone(),
+        rules,
+        examples,
+        can_apply: false,
+    };
+    ensure!(
+        serde_json::to_vec(&context)?.len() <= MAX_CONTEXT_BYTES,
+        "context exceeds byte budget; curate shorter rules/cases"
+    );
     Ok(context)
 }
 
@@ -312,38 +451,89 @@ pub struct Evaluation {
     pub can_apply: bool,
 }
 
-fn is_red(e: &Expected) -> bool { matches!(e.action.as_str(), "red" | "redundant") }
+fn is_red(e: &Expected) -> bool {
+    matches!(e.action.as_str(), "red" | "redundant")
+}
 
 /// Evaluate a complete split. The predictions must be generated independently;
 /// this function does not call/train a model or validate visual evidence.
 pub fn evaluate(profile: &Profile, predictions: &Predictions, split: Split) -> Result<Evaluation> {
     verify(profile)?;
-    ensure!(predictions.profile_id == profile.profile_id && text_ok(&predictions.reviewer), "prediction profile/reviewer mismatch");
+    ensure!(
+        predictions.profile_id == profile.profile_id && text_ok(&predictions.reviewer),
+        "prediction profile/reviewer mismatch"
+    );
     let cases: Vec<_> = profile.cases.iter().filter(|c| c.split == split).collect();
-    ensure!(!cases.is_empty() && predictions.cases.len() == cases.len(), "evaluation needs complete nonempty split");
-    let mut result = Evaluation { profile_id: profile.profile_id.clone(), reviewer: predictions.reviewer.clone(), split, total: 0, mismatches: vec![], false_red: 0, missed_redundancy: 0, passed: true, can_apply: false };
+    ensure!(
+        !cases.is_empty() && predictions.cases.len() == cases.len(),
+        "evaluation needs complete nonempty split"
+    );
+    let mut result = Evaluation {
+        profile_id: profile.profile_id.clone(),
+        reviewer: predictions.reviewer.clone(),
+        split,
+        total: 0,
+        mismatches: vec![],
+        false_red: 0,
+        missed_redundancy: 0,
+        passed: true,
+        can_apply: false,
+    };
     for case in cases {
-        let supplied = predictions.cases.get(&case.id).context("missing evaluation case")?;
-        ensure!(supplied.len() == case.frames.len(), "incomplete/extra evaluation frames");
-        ensure!(case.frames.iter().all(|f| supplied.contains_key(&f.id)), "missing evaluation frame");
-        let canonical: BTreeMap<_, _> = case.frames.iter().map(|f| (f.id.clone(), f.expected.clone())).collect();
+        let supplied = predictions
+            .cases
+            .get(&case.id)
+            .context("missing evaluation case")?;
+        ensure!(
+            supplied.len() == case.frames.len(),
+            "incomplete/extra evaluation frames"
+        );
+        ensure!(
+            case.frames.iter().all(|f| supplied.contains_key(&f.id)),
+            "missing evaluation frame"
+        );
+        let canonical: BTreeMap<_, _> = case
+            .frames
+            .iter()
+            .map(|f| (f.id.clone(), f.expected.clone()))
+            .collect();
         // Choose a COMPLETE acceptable variant, never independent per-frame
         // allowances that could accidentally approve all-red or all-retained.
-        let expected_group = std::iter::once(&canonical).chain(case.alternatives.iter()).min_by_key(|variant| {
-            variant.iter().filter(|(id, expected)| Expected::from(&supplied[*id]) != **expected).count()
-        }).context("missing expected group")?;
+        let expected_group = std::iter::once(&canonical)
+            .chain(case.alternatives.iter())
+            .min_by_key(|variant| {
+                variant
+                    .iter()
+                    .filter(|(id, expected)| Expected::from(&supplied[*id]) != **expected)
+                    .count()
+            })
+            .context("missing expected group")?;
         for frame in &case.frames {
-            let proposal = supplied.get(&frame.id).context("missing evaluation frame")?;
+            let proposal = supplied
+                .get(&frame.id)
+                .context("missing evaluation frame")?;
             let actual = Expected::from(proposal);
             let expected = &expected_group[&frame.id];
-            let comparison_supported = comparison(proposal).is_none_or(|c| c.supports_redundancy()
-                && text_ok(&c.reason) && c.keeper != frame.id
-                && supplied.get(&c.keeper).is_some_and(|p| matches!(p, Proposal::Retain { .. })));
+            let comparison_supported = comparison(proposal).is_none_or(|c| {
+                c.supports_redundancy()
+                    && text_ok(&c.reason)
+                    && c.keeper != frame.id
+                    && supplied
+                        .get(&c.keeper)
+                        .is_some_and(|p| matches!(p, Proposal::Retain { .. }))
+            });
             result.total += 1;
             result.false_red += usize::from(is_red(&actual) && !is_red(expected));
-            result.missed_redundancy += usize::from(expected.action == "redundant" && !is_red(&actual));
+            result.missed_redundancy +=
+                usize::from(expected.action == "redundant" && !is_red(&actual));
             if actual != *expected || !comparison_supported {
-                result.mismatches.push(Mismatch { case_id: case.id.clone(), frame_id: frame.id.clone(), expected: expected.clone(), actual, comparison_supported });
+                result.mismatches.push(Mismatch {
+                    case_id: case.id.clone(),
+                    frame_id: frame.id.clone(),
+                    expected: expected.clone(),
+                    actual,
+                    comparison_supported,
+                });
             }
         }
     }
@@ -353,7 +543,10 @@ pub fn evaluate(profile: &Profile, predictions: &Predictions, split: Split) -> R
 
 /// Shared extraction for reports, without treating a comparison as a judgment.
 pub fn comparison(proposal: &Proposal) -> Option<&Comparison> {
-    match proposal { Proposal::Redundant { comparison } => Some(comparison), _ => None }
+    match proposal {
+        Proposal::Redundant { comparison } => Some(comparison),
+        _ => None,
+    }
 }
 
 /// Input-only frame for independent evaluation; no old/corrected marking.
@@ -397,16 +590,51 @@ pub struct Challenge {
 
 /// Export questions separately from teaching answers. This limits accidental
 /// label leakage, not a malicious reviewer's access to the full profile.
-pub fn challenge(profile: &Profile, split: Split, offset: usize, limit: usize) -> Result<Challenge> {
+pub fn challenge(
+    profile: &Profile,
+    split: Split,
+    offset: usize,
+    limit: usize,
+) -> Result<Challenge> {
     verify(profile)?;
-    ensure!((1..=16).contains(&limit), "challenge page limit must be 1..=16");
+    ensure!(
+        (1..=16).contains(&limit),
+        "challenge page limit must be 1..=16"
+    );
     let all: Vec<_> = profile.cases.iter().filter(|c| c.split == split).collect();
-    ensure!(!all.is_empty() && offset < all.len(), "empty/out-of-range challenge page");
-    let cases = all.iter().skip(offset).take(limit).map(|c| ChallengeCase {
-        id: c.id.clone(), tags: c.tags.clone(), evidence_ids: c.evidence_ids.clone(),
-        frames: c.frames.iter().map(|f| ChallengeFrame { id: f.id.clone(), facts: f.facts.clone() }).collect(),
-    }).collect();
-    let result = Challenge { profile_id: profile.profile_id.clone(), split, total: all.len(), offset, cases, can_apply: false };
-    ensure!(serde_json::to_vec(&result)?.len() <= MAX_CONTEXT_BYTES, "challenge exceeds byte budget; reduce page size or shorten facts");
+    ensure!(
+        !all.is_empty() && offset < all.len(),
+        "empty/out-of-range challenge page"
+    );
+    let cases = all
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .map(|c| ChallengeCase {
+            id: c.id.clone(),
+            tags: c.tags.clone(),
+            evidence_ids: c.evidence_ids.clone(),
+            frames: c
+                .frames
+                .iter()
+                .map(|f| ChallengeFrame {
+                    id: f.id.clone(),
+                    facts: f.facts.clone(),
+                })
+                .collect(),
+        })
+        .collect();
+    let result = Challenge {
+        profile_id: profile.profile_id.clone(),
+        split,
+        total: all.len(),
+        offset,
+        cases,
+        can_apply: false,
+    };
+    ensure!(
+        serde_json::to_vec(&result)?.len() <= MAX_CONTEXT_BYTES,
+        "challenge exceeds byte budget; reduce page size or shorten facts"
+    );
     Ok(result)
 }

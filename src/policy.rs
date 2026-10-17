@@ -52,7 +52,10 @@ impl Comparison {
     /// Semantic precondition only; peer retention and evidence are checked separately.
     pub fn supports_redundancy(&self) -> bool {
         self.content == ContentRelation::Equivalent
-            && matches!(self.quality, AlternativeQuality::Better | AlternativeQuality::Equivalent)
+            && matches!(
+                self.quality,
+                AlternativeQuality::Better | AlternativeQuality::Equivalent
+            )
     }
 }
 
@@ -260,11 +263,26 @@ pub fn validate(observation: &Observation, evidence: &Evidence) -> Result<Valida
     }
     match &observation.proposal {
         Proposal::Redundant { comparison } => {
-            ensure!(note(&comparison.keeper) && note(&comparison.reason), "invalid comparison");
+            ensure!(
+                note(&comparison.keeper) && note(&comparison.reason),
+                "invalid comparison"
+            );
             hold(observation.record_value, "unique_record_value");
-            hold(observation.sequence != SequenceKind::Burst, "redundancy_requires_reviewed_burst");
-            hold(comparison.content != ContentRelation::Equivalent, "distinct_or_unresolved_content");
-            hold(!matches!(comparison.quality, AlternativeQuality::Better | AlternativeQuality::Equivalent), "alternative_quality_unresolved_or_worse");
+            hold(
+                observation.sequence != SequenceKind::Burst,
+                "redundancy_requires_reviewed_burst",
+            );
+            hold(
+                comparison.content != ContentRelation::Equivalent,
+                "distinct_or_unresolved_content",
+            );
+            hold(
+                !matches!(
+                    comparison.quality,
+                    AlternativeQuality::Better | AlternativeQuality::Equivalent
+                ),
+                "alternative_quality_unresolved_or_worse",
+            );
         }
         Proposal::Leave => (),
         Proposal::Retain { green, .. } => {
@@ -314,12 +332,16 @@ pub fn group_blockers(members: &[(&str, &Observation)]) -> Result<Vec<String>> {
                 && !observation.record_value
                 && comparison.supports_redundancy()
                 && peers.iter().any(|(peer_id, other)| {
-                    *peer_id == comparison.keeper && *peer_id != *id
+                    *peer_id == comparison.keeper
+                        && *peer_id != *id
                         && matches!(other.proposal, Proposal::Retain { .. })
-                        && !other.uncertain && other.technical_failure.is_none()
+                        && !other.uncertain
+                        && other.technical_failure.is_none()
                 });
             if !valid {
-                blockers.insert("redundancy_requires_equivalent_content_and_sound_retained_keeper".to_string());
+                blockers.insert(
+                    "redundancy_requires_equivalent_content_and_sound_retained_keeper".to_string(),
+                );
             }
         }
         ensure!(

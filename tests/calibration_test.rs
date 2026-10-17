@@ -1,5 +1,13 @@
-use imgcull::{calibration::{self, Expected, Predictions, Profile, Split}, policy::{AlternativeQuality, Comparison, ContentRelation, Proposal}, review};
-use std::{fs, path::{Path, PathBuf}, process::Command};
+use imgcull::{
+    calibration::{self, Expected, Predictions, Profile, Split},
+    policy::{AlternativeQuality, Comparison, ContentRelation, Proposal},
+    review,
+};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 use tempfile::TempDir;
 
 fn profile(root: &Path) -> (PathBuf, Profile) {
@@ -13,16 +21,45 @@ fn profile(root: &Path) -> (PathBuf, Profile) {
 
 fn proposal(expected: &Expected) -> Proposal {
     match expected.action.as_str() {
-        "retain" => Proposal::Retain { stars: expected.stars, green: expected.green },
+        "retain" => Proposal::Retain {
+            stars: expected.stars,
+            green: expected.green,
+        },
         "leave" => Proposal::Leave,
-        "red" => Proposal::Red { replacement: expected.keeper.clone() },
-        "redundant" => Proposal::Redundant { comparison: Comparison { keeper: expected.keeper.clone().unwrap(), content: ContentRelation::Equivalent, quality: AlternativeQuality::Equivalent, reason: "Equivalent useful content with sound retained alternative".into() } },
+        "red" => Proposal::Red {
+            replacement: expected.keeper.clone(),
+        },
+        "redundant" => Proposal::Redundant {
+            comparison: Comparison {
+                keeper: expected.keeper.clone().unwrap(),
+                content: ContentRelation::Equivalent,
+                quality: AlternativeQuality::Equivalent,
+                reason: "Equivalent useful content with sound retained alternative".into(),
+            },
+        },
         _ => panic!("invalid expectation"),
     }
 }
 
 fn predictions(profile: &Profile, split: Split) -> Predictions {
-    Predictions { profile_id: profile.profile_id.clone(), reviewer: "synthetic-contract-not-a-model-benchmark".into(), cases: profile.cases.iter().filter(|c| c.split == split).map(|c| (c.id.clone(), c.frames.iter().map(|f| (f.id.clone(), proposal(&f.expected))).collect())).collect() }
+    Predictions {
+        profile_id: profile.profile_id.clone(),
+        reviewer: "synthetic-contract-not-a-model-benchmark".into(),
+        cases: profile
+            .cases
+            .iter()
+            .filter(|c| c.split == split)
+            .map(|c| {
+                (
+                    c.id.clone(),
+                    c.frames
+                        .iter()
+                        .map(|f| (f.id.clone(), proposal(&f.expected)))
+                        .collect(),
+                )
+            })
+            .collect(),
+    }
 }
 
 #[test]
@@ -47,7 +84,11 @@ fn context_is_bounded_tagged_and_excludes_validation_answers() {
     assert!(!context.can_apply);
     assert!(context.examples.iter().any(|c| c.id == "table-equivalent"));
     assert!(context.examples.iter().all(|c| c.split == Split::Teaching));
-    assert!(!serde_json::to_string(&context).unwrap().contains("equivalent-landscape"));
+    assert!(
+        !serde_json::to_string(&context)
+            .unwrap()
+            .contains("equivalent-landscape")
+    );
     assert!(calibration::context(&p, &[]).is_err());
     assert!(calibration::context(&p, &["bird".into(), "bird".into()]).is_err());
     let mut too_broad = p.clone();
@@ -70,7 +111,7 @@ fn compact_context_has_a_byte_budget_even_when_case_count_is_small() {
     let root = TempDir::new().unwrap();
     let (_, mut p) = profile(root.path());
     p.profile_id.clear();
-    p.cases[0].frames[0].facts = vec!["Long descriptive observation ".repeat(100);16];
+    p.cases[0].frames[0].facts = vec!["Long descriptive observation ".repeat(100); 16];
     let draft = root.path().join("verbose-draft.json");
     let output = root.path().join("verbose-profile.json");
     fs::write(&draft, serde_json::to_vec(&p).unwrap()).unwrap();
@@ -88,11 +129,24 @@ fn evaluation_counts_false_red_and_missing_redundancy_separately() {
     assert!(pass.passed && !pass.can_apply);
     assert_eq!(pass.total, 6);
     // A stack false-red is not hidden by correctly choosing the landscape keeper.
-    run.cases.get_mut("protected-astro").unwrap().insert("a".into(), Proposal::Red { replacement: None });
-    run.cases.get_mut("equivalent-landscape").unwrap().insert("b".into(), Proposal::Leave);
+    run.cases
+        .get_mut("protected-astro")
+        .unwrap()
+        .insert("a".into(), Proposal::Red { replacement: None });
+    run.cases
+        .get_mut("equivalent-landscape")
+        .unwrap()
+        .insert("b".into(), Proposal::Leave);
     let failed = calibration::evaluate(&p, &run, Split::Validation).unwrap();
     assert!(!failed.passed);
-    assert_eq!((failed.false_red, failed.missed_redundancy, failed.mismatches.len()), (1, 1, 2));
+    assert_eq!(
+        (
+            failed.false_red,
+            failed.missed_redundancy,
+            failed.mismatches.len()
+        ),
+        (1, 1, 2)
+    );
 }
 
 #[test]
@@ -117,7 +171,15 @@ fn matching_label_with_unsupported_comparison_does_not_pass() {
     let root = TempDir::new().unwrap();
     let (_, p) = profile(root.path());
     let mut run = predictions(&p, Split::Teaching);
-    let Proposal::Redundant { comparison } = run.cases.get_mut("table-equivalent").unwrap().get_mut("b").unwrap() else { panic!() };
+    let Proposal::Redundant { comparison } = run
+        .cases
+        .get_mut("table-equivalent")
+        .unwrap()
+        .get_mut("b")
+        .unwrap()
+    else {
+        panic!()
+    };
     comparison.quality = AlternativeQuality::Unknown;
     let result = calibration::evaluate(&p, &run, Split::Teaching).unwrap();
     assert!(!result.passed);
@@ -128,12 +190,19 @@ fn matching_label_with_unsupported_comparison_does_not_pass() {
 fn malformed_correction_and_keeper_cycles_cannot_be_published() {
     let root = TempDir::new().unwrap();
     let input = root.path().join("bad.json");
-    let mut p: Profile = serde_json::from_str(include_str!("../examples/calibration-draft.json")).unwrap();
-    p.cases[0].frames[0].expected = Expected { action: "redundant".into(), keeper: Some("b".into()), stars: None, green: false };
+    let mut p: Profile =
+        serde_json::from_str(include_str!("../examples/calibration-draft.json")).unwrap();
+    p.cases[0].frames[0].expected = Expected {
+        action: "redundant".into(),
+        keeper: Some("b".into()),
+        stars: None,
+        green: false,
+    };
     fs::write(&input, serde_json::to_vec(&p).unwrap()).unwrap();
     assert!(calibration::publish(&input, &root.path().join("bad-profile.json")).is_err());
     assert!(!root.path().join("bad-profile.json").exists());
-    let bytes = include_str!("../examples/calibration-draft.json").replace("\"lesson\":", "\"misspelled_lesson\":");
+    let bytes = include_str!("../examples/calibration-draft.json")
+        .replace("\"lesson\":", "\"misspelled_lesson\":");
     fs::write(&input, bytes).unwrap();
     assert!(calibration::publish(&input, &root.path().join("bad-profile.json")).is_err());
 }
@@ -161,10 +230,18 @@ fn cli_evaluation_emits_report_and_fails_the_process_on_regression() {
     let root = TempDir::new().unwrap();
     let (path, p) = profile(root.path());
     let mut run = predictions(&p, Split::Validation);
-    run.cases.get_mut("protected-astro").unwrap().insert("a".into(), Proposal::Red { replacement: None });
+    run.cases
+        .get_mut("protected-astro")
+        .unwrap()
+        .insert("a".into(), Proposal::Red { replacement: None });
     let input = root.path().join("run.json");
     fs::write(&input, serde_json::to_vec(&run).unwrap()).unwrap();
-    let result = Command::new(env!("CARGO_BIN_EXE_imgcull")).arg("calibration-evaluate").arg(path).arg(input).output().unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_imgcull"))
+        .arg("calibration-evaluate")
+        .arg(path)
+        .arg(input)
+        .output()
+        .unwrap();
     assert!(!result.status.success());
     let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(report["false_red"], 1);
@@ -214,13 +291,47 @@ fn equally_good_keepers_allow_complete_alternatives_but_not_all_keep_or_all_red(
     let root = TempDir::new().unwrap();
     let (_, p) = profile(root.path());
     let mut run = predictions(&p, Split::Validation);
-    let case = p.cases.iter().find(|c| c.id == "equivalent-landscape").unwrap();
+    let case = p
+        .cases
+        .iter()
+        .find(|c| c.id == "equivalent-landscape")
+        .unwrap();
     let alternative = &case.alternatives[0];
-    run.cases.insert(case.id.clone(), alternative.iter().map(|(id,e)| (id.clone(),proposal(e))).collect());
-    assert!(calibration::evaluate(&p, &run, Split::Validation).unwrap().passed);
-    run.cases.get_mut(&case.id).unwrap().insert("a".into(), Proposal::Retain { stars: Some(4), green: false });
-    assert!(!calibration::evaluate(&p, &run, Split::Validation).unwrap().passed);
-    run.cases.get_mut(&case.id).unwrap().insert("a".into(), Proposal::Red { replacement: None });
-    run.cases.get_mut(&case.id).unwrap().insert("b".into(), Proposal::Red { replacement: None });
-    assert!(!calibration::evaluate(&p, &run, Split::Validation).unwrap().passed);
+    run.cases.insert(
+        case.id.clone(),
+        alternative
+            .iter()
+            .map(|(id, e)| (id.clone(), proposal(e)))
+            .collect(),
+    );
+    assert!(
+        calibration::evaluate(&p, &run, Split::Validation)
+            .unwrap()
+            .passed
+    );
+    run.cases.get_mut(&case.id).unwrap().insert(
+        "a".into(),
+        Proposal::Retain {
+            stars: Some(4),
+            green: false,
+        },
+    );
+    assert!(
+        !calibration::evaluate(&p, &run, Split::Validation)
+            .unwrap()
+            .passed
+    );
+    run.cases
+        .get_mut(&case.id)
+        .unwrap()
+        .insert("a".into(), Proposal::Red { replacement: None });
+    run.cases
+        .get_mut(&case.id)
+        .unwrap()
+        .insert("b".into(), Proposal::Red { replacement: None });
+    assert!(
+        !calibration::evaluate(&p, &run, Split::Validation)
+            .unwrap()
+            .passed
+    );
 }
