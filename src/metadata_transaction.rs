@@ -3,7 +3,7 @@ use crate::integrity::digest;
 use crate::storage::write_new as snapshot;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -33,7 +33,7 @@ fn reject_link(path: &Path) -> Result<()> {
     }
     Ok(())
 }
-fn locked_target(path: &Path) -> Result<(PathBuf, File)> {
+fn locked_target(path: &Path) -> Result<(PathBuf, crate::storage::FileLock)> {
     ensure!(
         crate::discovery::has_extension(path, &["xmp"]),
         "metadata transaction target must be an XMP sidecar"

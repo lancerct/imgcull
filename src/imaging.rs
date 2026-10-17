@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 /// Maximum decoded source area accepted by this renderer.
 pub const MAX_PIXELS: u64 = 100_000_000;
+/// Default full-source floor for the user's approximately 45MP camera.
+pub const DEFAULT_MIN_PIXELS: u64 = 45_000_000;
 /// Maximum native detail edge; details are never resized.
 pub const DETAIL_EDGE: u32 = 1024;
 /// Renderer version is part of evidence identity.

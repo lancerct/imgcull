@@ -1,8 +1,6 @@
-mod cli;
-
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Commands};
+use imgcull::cli::{self, Cli, Commands};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -53,12 +51,16 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Commands::Rollback { transaction } => imgcull::metadata_transaction::rollback(&transaction),
-        Commands::ReviewInit { paths, output } => {
-            println!("{}", serde_json::to_string(&imgcull::review::create(&paths, &output)?)?);
+        Commands::ReviewInit { paths, output, min_pixels } => {
+            println!("{}", serde_json::to_string(&imgcull::review::create(&paths, &output, min_pixels)?)?);
             Ok(())
         }
         Commands::ReviewStatus { directory } => {
             println!("{}", serde_json::to_string(&imgcull::review::status(&directory)?)?);
+            Ok(())
+        }
+        Commands::ReviewShow { directory, photo_id } => {
+            println!("{}", serde_json::to_string(&imgcull::review::show(&directory, &photo_id)?)?);
             Ok(())
         }
         Commands::ReviewList { directory, offset, limit } => {

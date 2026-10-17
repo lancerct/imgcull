@@ -41,6 +41,8 @@ pub struct Job {
     pub schema: u32,
     /// Selection policy version prevents silently changing an existing job.
     pub policy_version: u32,
+    /// Required decoded native area, frozen independently of individual bundles.
+    pub min_pixels: u64,
     /// Canonical JSON checksum with this field cleared.
     pub job_id: String,
     /// Frozen logical photos, with companion assets counted once.
@@ -92,7 +94,7 @@ pub struct CheckReport {
 pub struct Page {
     /// Progress and revision for this page.
     pub status: Status,
-    /// Starting offset in stable photo-ID order.
+    /// Starting offset in stable primary-path order.
     pub offset: usize,
     /// Opaque ID, source path, and whether a draft exists.
     pub photos: Vec<PhotoItem>,
@@ -107,6 +109,21 @@ pub struct PhotoItem {
     pub primary: PathBuf,
     /// Recorded does not mean visually validated or approved.
     pub recorded: bool,
+}
+
+/// Latest draft for a single frame, without replaying prior revisions.
+#[derive(Debug, Serialize)]
+pub struct Draft {
+    /// Current global revision for the next write.
+    pub status: Status,
+    /// Requested photo identity.
+    pub photo_id: String,
+    /// Last checkpoint for this frame, if any.
+    pub photo_revision: Option<u64>,
+    /// Bundle referenced by the draft; not revalidated by this read.
+    pub evidence: Option<PathBuf>,
+    /// Latest reviewer declaration; not an approved verdict.
+    pub observation: Option<policy::Observation>,
 }
 
 struct Loaded {
@@ -213,7 +230,8 @@ impl Loaded {
 
 /// Freeze a new job, including every companion and existing XMP revision.
 /// Does not decode photos, contact a model, or overwrite an existing output.
-pub fn create(paths: &[PathBuf], output: &Path) -> Result<Status> {
+pub fn create(paths: &[PathBuf], output: &Path, min_pixels: u64) -> Result<Status> {
+    ensure!(min_pixels <= crate::imaging::MAX_PIXELS, "pixel floor exceeds renderer limit");
     ensure!(!output.try_exists()?, "review job already exists");
     let inputs = discovery::deduplicate_images(discovery::discover_images(paths))?;
     ensure!(!inputs.is_empty(), "no photos discovered");
@@ -222,14 +240,18 @@ pub fn create(paths: &[PathBuf], output: &Path) -> Result<Status> {
         let photo = capture(&input)?;
         photos.insert(photo.photo_id.clone(), photo);
     }
-    let mut job = Job { schema: 1, policy_version: policy::POLICY_VERSION,
-        job_id: String::new(), photos: photos.into_values().collect() };
+    let mut photos: Vec<_> = photos.into_values().collect();
+    photos.sort_by(|a, b| a.primary.cmp(&b.primary));
+    let mut job = Job { schema: 1, policy_version: policy::POLICY_VERSION, min_pixels,
+        job_id: String::new(), photos };
     job.job_id = job_checksum(&job)?;
     let parent = output.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     fs::create_dir_all(parent)?;
     let staging = tempfile::Builder::new().prefix(".imgcull-job-").tempdir_in(parent)?;
     fs::create_dir(staging.path().join("checkpoints"))?;
-    storage::write_new(&staging.path().join("job.json"), &serde_json::to_vec_pretty(&job)?)?;
+    let bytes = serde_json::to_vec_pretty(&job)?;
+    ensure!(bytes.len() <= 64 * 1024 * 1024, "job manifest is too large");
+    storage::write_new(&staging.path().join("job.json"), &bytes)?;
     ensure!(!output.try_exists()?, "review output appeared during creation");
     fs::rename(staging.path(), output)?;
     status(output)
@@ -256,9 +278,24 @@ pub fn page(directory: &Path, offset: usize, limit: usize) -> Result<Page> {
     Ok(Page { status: loaded.status(), offset, photos })
 }
 
-fn validate_record(photo: &Photo, record: &Checkpoint) -> Result<policy::Validation> {
+/// Recover one latest draft after an agent/model restart. Use check() separately
+/// to validate current sources and coverage before relying on its proposals.
+pub fn show(directory: &Path, photo_id: &str) -> Result<Draft> {
+    let root = store_root(directory)?;
+    let _lock = storage::lock_file(&root.join("review.lock"))?;
+    let loaded = load(&root)?;
+    ensure!(loaded.job.photos.iter().any(|p| p.photo_id == photo_id), "unknown photo identity");
+    let record = loaded.latest.get(photo_id);
+    Ok(Draft { status: loaded.status(), photo_id: photo_id.into(),
+        photo_revision: record.map(|r| r.revision), evidence: record.map(|r| r.evidence.clone()),
+        observation: record.map(|r| r.observation.clone()) })
+}
+
+fn validate_record(photo: &Photo, record: &Checkpoint, min_pixels: u64) -> Result<policy::Validation> {
     ensure!(capture(&photo.primary)? == *photo, "photo companions or XMP changed since job creation");
     let evidence = evidence::verify(&record.evidence)?;
+    ensure!(u64::from(evidence.render.width) * u64::from(evidence.render.height) >= min_pixels,
+        "evidence does not meet the job's native pixel floor");
     ensure!(evidence.render.identity == photo.sidecar, "evidence belongs to another photo");
     ensure!(photo.assets.iter().any(|a| a.path == evidence.render.source && a.sha256 == evidence.render.source_sha256), "evidence source not in frozen asset set");
     policy::validate(&record.observation, &evidence)
@@ -277,7 +314,7 @@ pub fn record(directory: &Path, expected_revision: u64, photo_id: &str,
     let mut checkpoint = Checkpoint { schema: 1, revision: expected_revision.checked_add(1).context("revision overflow")?,
         previous: loaded.tip, checkpoint_id: String::new(), photo_id: photo_id.into(),
         evidence: evidence_directory.canonicalize()?, observation };
-    validate_record(photo, &checkpoint)?;
+    validate_record(photo, &checkpoint, loaded.job.min_pixels)?;
     checkpoint.checkpoint_id = checkpoint_checksum(&checkpoint)?;
     let parent = root.join("checkpoints");
     let staging = tempfile::Builder::new().prefix(".checkpoint-").tempdir_in(&parent)?;
@@ -297,7 +334,7 @@ pub fn check(directory: &Path) -> Result<CheckReport> {
     let mut blockers = BTreeMap::new();
     for photo in &loaded.job.photos {
         let reasons = match loaded.latest.get(&photo.photo_id) {
-            Some(record) => validate_record(photo, record)?.blockers,
+            Some(record) => validate_record(photo, record, loaded.job.min_pixels)?.blockers,
             None => vec!["observation_missing".into()],
         };
         if !reasons.is_empty() { blockers.insert(photo.photo_id.clone(), reasons); }

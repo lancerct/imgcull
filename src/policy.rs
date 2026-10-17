@@ -107,7 +107,7 @@ pub struct Observation {
     pub proposal: Proposal,
 }
 
-/// Validation result saved in the review store. Blocked observations may be
+/// Validation result recomputed from the review store. Blocked observations may be
 /// resumed or revised; none of these states constitutes XMP authorization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -154,6 +154,7 @@ pub fn validate(observation: &Observation, evidence: &Evidence) -> Result<Valida
         hold(!seen.contains("overview"), "composition_not_reviewed");
         hold(!focus || observation.inspection != Inspection::HumanNative, "native_inspection_unverified");
         hold(!observation.edges_checked, "edges_not_reviewed");
+        hold(!matches!(observation.sequence, SequenceKind::Independent | SequenceKind::Burst), "protected_or_unknown_sequence");
         // The user chose LR's current developed appearance for artistic value.
         // Current evidence is original JPEG/default RAW. Until a verified LR
         // rendition adapter exists, never accept an artistic/green/star verdict.
@@ -171,7 +172,6 @@ pub fn validate(observation: &Observation, evidence: &Evidence) -> Result<Valida
         }
         Proposal::Red { replacement } => {
             hold(observation.record_value, "unique_record_value");
-            hold(!matches!(observation.sequence, SequenceKind::Independent | SequenceKind::Burst), "protected_or_unknown_sequence");
             if observation.technical_failure.is_none() {
                 hold(!observation.artistic_score.is_some_and(|n| n <= 5), "red_score_too_high_or_missing");
                 hold(observation.artistic_score == Some(5) && replacement.is_none(), "score_five_requires_better_retained_alternative");

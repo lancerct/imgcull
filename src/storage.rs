@@ -12,8 +12,18 @@ pub(crate) fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// OS-lock owner. Explicit unlock on drop also releases an inherited open-file
+/// description during a concurrent Unix fork/exec window.
+pub(crate) struct FileLock(File);
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 /// Hold a nonblocking OS lock; process exit releases it without stale-lock cleanup.
-pub(crate) fn lock_file(path: &Path) -> Result<File> {
+pub(crate) fn lock_file(path: &Path) -> Result<FileLock> {
     match std::fs::symlink_metadata(path) {
         Ok(meta) => anyhow::ensure!(meta.is_file() && !meta.file_type().is_symlink(), "invalid lock file"),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
@@ -21,5 +31,5 @@ pub(crate) fn lock_file(path: &Path) -> Result<File> {
     }
     let file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path)?;
     file.try_lock().map_err(|e| anyhow::anyhow!("resource is locked: {e}"))?;
-    Ok(file)
+    Ok(FileLock(file))
 }

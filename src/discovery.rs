@@ -50,6 +50,11 @@ pub fn deduplicate_images(images: Vec<PathBuf>) -> anyhow::Result<Vec<PathBuf>> 
             "multiple RAW files share one XMP: {:?}",
             paths
         );
+        anyhow::ensure!(
+            paths.len() - raws.len() <= 1,
+            "multiple JPEG files share one XMP: {:?}",
+            paths
+        );
         let selected = raws
             .first()
             .map(|p| (*p).clone())
@@ -106,7 +111,10 @@ pub fn photo_assets(image: &Path) -> anyhow::Result<Vec<PathBuf>> {
     }
     assets.sort();
     assets.dedup();
-    anyhow::ensure!(assets.contains(&image), "identity disappeared during discovery");
+    anyhow::ensure!(
+        assets.contains(&image),
+        "identity disappeared during discovery"
+    );
     deduplicate_images(assets.clone())?;
     Ok(assets)
 }

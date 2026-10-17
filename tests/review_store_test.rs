@@ -7,7 +7,7 @@ fn setup(root: &Path) -> (PathBuf, PathBuf, Evidence, String) {
     let photo = root.join("photo.JPG");
     image::RgbImage::from_fn(80, 60, |x, y| image::Rgb([x as u8, y as u8, 90])).save(&photo).unwrap();
     let job = root.join("job");
-    review::create(std::slice::from_ref(&photo), &job).unwrap();
+    review::create(std::slice::from_ref(&photo), &job, 0).unwrap();
     let id = review::page(&job, 0, 1).unwrap().photos[0].photo_id.clone();
     let bundle = root.join("bundle");
     let evidence = evidence::prepare(&photo, &bundle, &[DetailRequest {
@@ -39,10 +39,14 @@ fn checkpoint_survives_reload_and_stale_worker_cannot_overwrite() {
     assert!(review::record(&job, 0, &id, &bundle, draft.clone()).is_err());
     assert_eq!(fs::read(job.join("checkpoints/00000000000000000001/record.json")).unwrap(), bytes);
     assert_eq!(review::status(&job).unwrap().revision, 1);
+    let recovered = review::show(&job, &id).unwrap();
+    assert_eq!(recovered.photo_revision, Some(1));
+    assert_eq!(recovered.observation.unwrap().proposal, draft.proposal);
     let report = review::check(&job).unwrap();
     assert!(report.blockers[&id].iter().any(|v| v == "lightroom_current_appearance_unavailable"));
     draft.proposal = Proposal::Leave;
     assert_eq!(review::record(&job, 1, &id, &bundle, draft).unwrap().revision, 2);
+    assert_eq!(review::show(&job, &id).unwrap().observation.unwrap().proposal, Proposal::Leave);
     assert!(!review::check(&job).unwrap().status.can_apply);
     assert!(!root.path().join("photo.xmp").exists());
 }
@@ -58,7 +62,7 @@ fn every_raw_jpeg_companion_is_frozen_even_for_jpeg_only_input() {
     let metadata = b"<human-edits crop='keep' rating='5'/>";
     fs::write(&xmp, metadata).unwrap();
     let job = root.path().join("job");
-    assert_eq!(review::create(&[jpg], &job).unwrap().total, 1);
+    assert_eq!(review::create(&[jpg], &job, 0).unwrap().total, 1);
     let page = review::page(&job, 0, 1).unwrap();
     assert!(page.photos[0].primary.ends_with("photo.DNG"));
     let manifest: review::Job = serde_json::from_slice(&fs::read(job.join("job.json")).unwrap()).unwrap();
@@ -114,7 +118,7 @@ fn interrupted_staging_is_ignored_and_job_cannot_be_replaced() {
     fs::create_dir(&partial).unwrap();
     fs::write(partial.join("record.json"), b"{partial").unwrap();
     assert_eq!(review::status(&job).unwrap().revision, 0);
-    assert!(review::create(&[root.path().join("photo.JPG")], &job).is_err());
+    assert!(review::create(&[root.path().join("photo.JPG")], &job, 0).is_err());
     assert_eq!(review::status(&job).unwrap().total, 1);
 }
 
@@ -220,6 +224,8 @@ fn cli_progress_is_small_and_does_not_include_history_or_pixels() {
     assert_eq!(json["can_apply"], false);
     assert!(json.get("observations").is_none() && json.get("base64").is_none());
     assert!(review::page(&job, 0, 201).is_err());
+    assert!(review::show(&job, "unknown-photo").is_err());
+    assert!(review::show(&job, &review::page(&job, 0, 1).unwrap().photos[0].photo_id).unwrap().observation.is_none());
     assert_eq!(review::page(&job, 5, 1).unwrap().photos.len(), 0);
 }
 
@@ -245,4 +251,53 @@ fn a_saved_review_is_invalidated_by_later_evidence_mutation() {
     // Progress is history, not a claim of evidence/source validity.
     assert_eq!(review::status(&job).unwrap().recorded, 1);
     assert!(review::check(&job).is_err());
+}
+
+#[test]
+fn completed_locks_are_released_during_concurrent_process_spawns() {
+    let a = TempDir::new().unwrap();
+    let b = TempDir::new().unwrap();
+    let (job_a, _, _, _) = setup(a.path());
+    let (job_b, _, _, _) = setup(b.path());
+    let worker = std::thread::spawn(move || {
+        for _ in 0..16 {
+            let output = std::process::Command::new(env!("CARGO_BIN_EXE_imgcull")).arg("review-status").arg(&job_b).output().unwrap();
+            assert!(output.status.success());
+        }
+    });
+    // Only this thread accesses job_a. Child process creation in another thread
+    // must not transiently keep a completed lock alive through an inherited FD.
+    for _ in 0..1000 { assert_eq!(review::status(&job_a).unwrap().revision, 0); }
+    worker.join().unwrap();
+}
+
+#[test]
+fn lowering_one_bundle_floor_cannot_bypass_the_frozen_job_requirement() {
+    let root = TempDir::new().unwrap();
+    let (_, bundle, evidence, _) = setup(root.path());
+    let strict = root.path().join("strict-job");
+    review::create(&[root.path().join("photo.JPG")], &strict, imgcull::imaging::DEFAULT_MIN_PIXELS).unwrap();
+    let id = review::page(&strict, 0, 1).unwrap().photos[0].photo_id.clone();
+    assert!(review::record(&strict, 0, &id, &bundle, observation(&evidence)).is_err());
+    assert_eq!(review::status(&strict).unwrap().revision, 0);
+    let mut o = observation(&evidence);
+    o.sequence = SequenceKind::AstroStack;
+    o.proposal = Proposal::Retain { stars: Some(3), green: false };
+    assert!(policy::validate(&o, &evidence).unwrap().blockers.contains(&"protected_or_unknown_sequence".into()));
+}
+
+#[test]
+fn ambiguous_physical_companions_abort_before_creating_a_job() {
+    let root = TempDir::new().unwrap();
+    let jpg = root.path().join("photo.JPG");
+    fs::write(&jpg, b"identity only; no decode in discovery").unwrap();
+    fs::write(root.path().join("photo.jpeg"), b"another JPEG").unwrap();
+    let output = root.path().join("job");
+    assert!(review::create(std::slice::from_ref(&jpg), &output, 0).is_err());
+    assert!(!output.exists());
+    fs::remove_file(root.path().join("photo.jpeg")).unwrap();
+    fs::write(root.path().join("photo.NEF"), b"raw one").unwrap();
+    fs::write(root.path().join("photo.DNG"), b"raw two").unwrap();
+    assert!(review::create(&[jpg], &output, 0).is_err());
+    assert!(!output.exists());
 }

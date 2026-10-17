@@ -38,9 +38,14 @@ pub enum Commands {
         /// New task directory; existing jobs cannot be replaced.
         #[arg(long)]
         output: PathBuf,
+        /// Native decoded area required by this job; lower explicitly for older cameras.
+        #[arg(long, default_value_t = crate::imaging::DEFAULT_MIN_PIXELS)]
+        min_pixels: u64,
     },
     /// Compact recorded/pending progress; does not certify current sources.
     ReviewStatus { directory: PathBuf },
+    /// Read one latest draft without replaying its full history.
+    ReviewShow { directory: PathBuf, photo_id: String },
     /// List a bounded page of logical photo IDs for scheduling.
     ReviewList {
         directory: PathBuf,
@@ -82,7 +87,7 @@ pub struct PrepareArgs {
     #[arg(long)]
     pub regions: Option<PathBuf>,
     /// Minimum decoded native area (45MP default for this user's 45MP camera).
-    #[arg(long, default_value_t = 45_000_000)]
+    #[arg(long, default_value_t = crate::imaging::DEFAULT_MIN_PIXELS)]
     pub min_pixels: u64,
 }
 
