@@ -6,15 +6,13 @@ use quick_xml::escape::escape;
 use roxmltree::{Document, Node};
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const DC: &str = "http://purl.org/dc/elements/1.1/";
 const XMP: &str = "http://ns.adobe.com/xap/1.0/";
 const IC: &str = "http://imgcull.dev/ns/1.0/";
 const EMPTY: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF></x:xmpmeta>"#;
-pub fn sidecar_for_image(path: &Path) -> PathBuf {
-    path.with_extension("xmp")
-}
+pub use crate::discovery::sidecar_for_image;
 fn description_node<'a>(doc: &'a Document<'a>) -> Result<Node<'a, 'a>> {
     let nodes: Vec<_> = doc
         .descendants()

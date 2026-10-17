@@ -150,7 +150,7 @@ pub async fn run_pipeline(
                 // Preprocess on a blocking worker — fs read, RAW decode,
                 // resize and JPEG re-encode are all CPU/IO bound and would
                 // otherwise stall tokio workers.
-                let preprocess_path = crate::discovery::review_source(&image_path);
+                let preprocess_path = image_path.clone();
                 match tokio::task::spawn_blocking(move || preprocess_image(&preprocess_path)).await
                 {
                     Ok(Ok(p)) => Some(p),

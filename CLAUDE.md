@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Read docs/culling-architecture.md before changes to the personal culling workflow. It defines current module ownership, interfaces, iteration gates and incomplete stages. Its current module descriptions supersede historical descriptions below (notably the former string-based XMP merge and embedded-preview preprocessing).
+
 ## Build & Test Commands
 
 ```bash
@@ -30,7 +32,7 @@ CLI (clap) → File Discovery → Image Preprocessing → [Semaphore gate]
 
 ### Key design decisions
 
-- **Two LLM calls per image**: description (free-text via `DescriptionProvider` trait) and scoring (structured via `ScoringProvider` trait + JSON parse). Always separate — never combined.
+- **Legacy LLM calls**: description and scoring use separate provider traits. This describes score/describe, not a requirement to make two calls per image in the future typed personal-review workflow.
 - **Rig's `Extractor<T>` cannot handle multimodal input** (images + text). All scoring uses `Agent` prompt → parse JSON response. The `parse_scoring_result()` function in `llm.rs` handles both raw JSON and markdown-fenced JSON from LLMs.
 - **XMP merge, not overwrite**: When a sidecar already exists (e.g., from Lightroom), `write()` injects/replaces only imgcull-managed fields (`dc:description`, `xmp:Rating`, `imgcull:*`) and preserves all other XML content. The `raw_content` field on `XmpSidecar` stores the original file for merging.
 - **Dirty tracking**: `XmpSidecar` tracks whether any modifications were made. The pipeline skips backup+write for unchanged sidecars.
@@ -45,9 +47,12 @@ CLI (clap) → File Discovery → Image Preprocessing → [Semaphore gate]
 - `lib.rs` — Crate root. Re-exports all modules as `pub mod`. Contains `setup_logging()` with an internal ANSI-stripping writer to prevent ANSI contamination from the shared tracing registry span cache.
 - `llm.rs` — `DescriptionProvider` / `ScoringProvider` traits + 5 provider structs (one per backend, each implementing both traits). Each provider stores a pre-built Rig `Agent` bound to its preamble, so the underlying `reqwest` client and connection pool are reused across every LLM call.
 - `pipeline.rs` — `run_pipeline()` spawns a `tokio::spawn` per image, bounded by `Arc<Semaphore>`. Each task preprocesses (via `spawn_blocking`), calls LLMs with retry, writes XMP.
-- `preprocessing.rs` — JPEG passthrough, RAW preview extraction via `rawler` (17 formats: arw, cr2, cr3, dng, erf, mef, mos, mrw, nef, nrw, orf, pef, raf, rw2, sr2, srw), resize to 2048px max, base64 encode.
+- `preprocessing.rs` — legacy overview adapter over imaging; full decode is shared, then normalized JPEG overview encoding. Personal focus decisions additionally require native detail review.
+- `imaging.rs` — one full-resolution raster/RAW decoder, orientation normalization, overview and unscaled native crops.
+- `evidence.rs` — immutable, hashed evidence bundles and verification; never a photographic verdict or metadata writer.
+- `integrity.rs` and `storage.rs` — shared hash and immutable-write primitives; no application policy.
 - `discovery.rs` — Walks directories and filters by extension. `SUPPORTED_EXTENSIONS` is the single source of truth: `preprocessing::preprocess_image` treats `jpg`/`jpeg` as JPEG and every other entry as a rawler-handled RAW format.
-- `xmp.rs` — XMP sidecar read/merge/write using string manipulation (not a full XML DOM). Uses `quick-xml` only for validation.
+- `xmp.rs` — namespace-aware property edits preserving untouched bytes; metadata_transaction owns conflict checks, locks, journal and rollback.
 - `config.rs` — TOML config + prompts loading with defaults. `Config::default()` and `Prompts::default()` provide built-in fallbacks.
 - `scoring.rs` — `ScoringResult` struct with 5 hardcoded dimension fields (`Option<f64>`), an optional `critique` string, and optional `keywords` array. Derives `JsonSchema` for Rig compatibility. The canonical dimension set is exposed as `pub const DIMENSIONS: &[&str]` and consumed by `overall_score()`, `XmpSidecar::set_scores()`, and `Prompts::render_scoring_prompt()`.
 - `retry.rs` — Generic `retry_with_backoff(max_attempts, op)` used by the pipeline for both description and scoring LLM calls.

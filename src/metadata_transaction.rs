@@ -1,7 +1,8 @@
 //! Recoverable metadata replacement. No photo pixels are modified.
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use crate::integrity::digest;
+use crate::storage::write_new as snapshot;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -12,9 +13,6 @@ struct Record {
     target: PathBuf,
     before: Option<String>,
     after: String,
-}
-fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
 }
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {
     match fs::read(path) {
@@ -76,12 +74,6 @@ fn atomic_replace(path: &Path, content: &[u8], must_be_absent: bool) -> Result<(
     } else {
         tmp.persist(path).map_err(|e| e.error)?;
     }
-    Ok(())
-}
-fn snapshot(path: &Path, content: &[u8]) -> Result<()> {
-    let mut f = OpenOptions::new().write(true).create_new(true).open(path)?;
-    f.write_all(content)?;
-    f.sync_all()?;
     Ok(())
 }
 fn state_directory(target: &Path) -> Result<PathBuf> {
