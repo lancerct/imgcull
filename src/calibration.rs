@@ -7,6 +7,8 @@ use std::{collections::{BTreeMap, BTreeSet}, fs, path::Path};
 
 /// Hard bound for local preference/control JSON; never contains image payloads.
 pub const MAX_BYTES: u64 = 2 * 1024 * 1024;
+/// Keep retrieved teaching context bounded independently of the whole corpus.
+pub const MAX_CONTEXT_BYTES: usize = 32 * 1024;
 
 /// Separate teaching examples from regression cases withheld from context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
@@ -80,6 +82,10 @@ pub struct Frame {
 pub struct Case {
     /// Stable ID across profile revisions, allowing case-level comparison.
     pub id: String,
+    /// Optional local immutable evidence IDs for actual image-based corrections.
+    /// Hash references only; no photo bytes or private source paths in profiles.
+    #[serde(default)]
+    pub evidence_ids: Vec<String>,
     /// Teaching or withheld validation.
     pub split: Split,
     /// Scene/purpose tags; not inferred proof of sequence membership.
@@ -170,6 +176,7 @@ fn validate(profile: &Profile) -> Result<()> {
     let mut case_ids = BTreeSet::new();
     for case in &profile.cases {
         ensure!(id_ok(&case.id) && case_ids.insert(&case.id) && tags_ok(&case.tags) && !case.tags.is_empty(), "invalid/duplicate case");
+        ensure!(case.evidence_ids.len() <= 32 && case.evidence_ids.iter().all(|id| hash_ok(id)) && case.evidence_ids.iter().collect::<BTreeSet<_>>().len() == case.evidence_ids.len(), "invalid case evidence references");
         ensure!(matches!(case.origin.as_str(), "user_correction" | "user_preference" | "synthetic_counterexample") && text_ok(&case.lesson), "invalid case origin/lesson");
         ensure!((1..=16).contains(&case.frames.len()), "case frame limit");
         let ids: BTreeSet<_> = case.frames.iter().map(|f| f.id.as_str()).collect();
@@ -229,12 +236,15 @@ pub struct ReviewContext {
 /// Retrieve a bounded context for supplied scene/purpose tags. These tags are
 /// reviewer input, not an automatic scene classifier or a safety-policy bypass.
 pub fn context(profile: &Profile, tags: &[String]) -> Result<ReviewContext> {
+    verify(profile)?;
     ensure!(tags_ok(tags) && !tags.is_empty(), "provide 1..=16 unique scene tags");
     let matches = |wanted: &[String]| wanted.is_empty() || wanted.iter().any(|t| tags.contains(t));
     let rules: Vec<_> = profile.rules.iter().filter(|r| matches(&r.tags)).cloned().collect();
     let examples: Vec<_> = profile.cases.iter().filter(|c| c.split == Split::Teaching && matches(&c.tags)).cloned().collect();
     ensure!(rules.len() <= 16 && examples.len() <= 8, "context too broad; narrow tags or curate profile");
-    Ok(ReviewContext { profile_id: profile.profile_id.clone(), rules, examples, can_apply: false })
+    let context = ReviewContext { profile_id: profile.profile_id.clone(), rules, examples, can_apply: false };
+    ensure!(serde_json::to_vec(&context)?.len() <= MAX_CONTEXT_BYTES, "context exceeds byte budget; curate shorter rules/cases");
+    Ok(context)
 }
 
 /// Results from one declared model/prompt run, using the existing Proposal type.
@@ -292,6 +302,7 @@ fn is_red(e: &Expected) -> bool { matches!(e.action.as_str(), "red" | "redundant
 /// Evaluate a complete split. The predictions must be generated independently;
 /// this function does not call/train a model or validate visual evidence.
 pub fn evaluate(profile: &Profile, predictions: &Predictions, split: Split) -> Result<Evaluation> {
+    verify(profile)?;
     ensure!(predictions.profile_id == profile.profile_id && text_ok(&predictions.reviewer), "prediction profile/reviewer mismatch");
     let cases: Vec<_> = profile.cases.iter().filter(|c| c.split == split).collect();
     ensure!(!cases.is_empty() && predictions.cases.len() == cases.len(), "evaluation needs complete nonempty split");

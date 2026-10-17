@@ -56,7 +56,27 @@ fn context_is_bounded_tagged_and_excludes_validation_answers() {
         case.id = format!("extra-{i}");
         too_broad.cases.push(case);
     }
+    too_broad.profile_id.clear();
+    let draft = root.path().join("broad-draft.json");
+    let output = root.path().join("broad-profile.json");
+    fs::write(&draft, serde_json::to_vec(&too_broad).unwrap()).unwrap();
+    calibration::publish(&draft, &output).unwrap();
+    let too_broad = calibration::load(&output).unwrap();
     assert!(calibration::context(&too_broad, &["food".into()]).is_err());
+}
+
+#[test]
+fn compact_context_has_a_byte_budget_even_when_case_count_is_small() {
+    let root = TempDir::new().unwrap();
+    let (_, mut p) = profile(root.path());
+    p.profile_id.clear();
+    p.cases[0].frames[0].facts = vec!["Long descriptive observation ".repeat(100);16];
+    let draft = root.path().join("verbose-draft.json");
+    let output = root.path().join("verbose-profile.json");
+    fs::write(&draft, serde_json::to_vec(&p).unwrap()).unwrap();
+    calibration::publish(&draft, &output).unwrap();
+    let verbose = calibration::load(&output).unwrap();
+    assert!(calibration::context(&verbose, &["food".into()]).is_err());
 }
 
 #[test]
@@ -156,4 +176,15 @@ fn cli_evaluation_emits_report_and_fails_the_process_on_regression() {
 fn unknown_prediction_fields_are_not_silently_accepted() {
     let data = r#"{"profile_id":"x","reviewer":"model","cases":{},"pretend_native":true}"#;
     assert!(serde_json::from_str::<Predictions>(data).is_err());
+}
+
+#[test]
+fn real_case_evidence_references_are_optional_but_cannot_be_arbitrary_paths() {
+    let root = TempDir::new().unwrap();
+    let (_, mut p) = profile(root.path());
+    p.profile_id.clear();
+    p.cases[0].evidence_ids = vec!["private-photo-path.jpg".into()];
+    let draft = root.path().join("invalid-evidence-draft.json");
+    fs::write(&draft, serde_json::to_vec(&p).unwrap()).unwrap();
+    assert!(calibration::publish(&draft, &root.path().join("invalid-evidence.json")).is_err());
 }

@@ -146,6 +146,22 @@ fn redundancy_keeps_protection_and_native_coverage_requirements() {
 }
 
 #[test]
+fn changed_policy_refuses_to_reinterpret_an_old_job() {
+    let root = TempDir::new().unwrap();
+    let (job, _, _, _) = setup(root.path());
+    let manifest = job.join("job.json");
+    let mut old: serde_json::Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    old["schema"] = 1.into();
+    old["policy_version"] = 1.into();
+    old.as_object_mut().unwrap().remove("calibration");
+    let bytes = serde_json::to_vec(&old).unwrap();
+    fs::write(&manifest, &bytes).unwrap();
+    let error = review::status(&job).unwrap_err().to_string();
+    assert!(error.contains("create a new job deliberately"));
+    assert_eq!(fs::read(&manifest).unwrap(), bytes);
+}
+
+#[test]
 fn comparison_report_is_escaped_immutable_and_never_writes_xmp() {
     let root = TempDir::new().unwrap();
     let (job, bundle, evidence, id) = setup(root.path());
@@ -161,7 +177,7 @@ fn comparison_report_is_escaped_immutable_and_never_writes_xmp() {
     assert!(!report.contains("<script>"));
     assert!(report.contains("&lt;script&gt;"));
     assert!(report.contains("data:image/jpeg;base64,"));
-    assert!(report.contains("lightroom_current_appearance_unavailable"));
+    assert!(report.contains("尚未接通 Lightroom"));
     assert!(report.contains("保留替代"));
     assert!(review::write_report(&job, &output, 0, 50).is_err());
     assert!(!root.path().join("photo.xmp").exists());

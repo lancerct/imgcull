@@ -65,6 +65,9 @@ whether the model misread the picture, compared the wrong frames or applied the
 wrong preference. A preference cannot repair missing pixels or prove focus.
 Store only case-local opaque IDs in publishable examples. Real-photo review
 evidence belongs in local immutable evidence/review records, not GitHub.
+Actual image-based cases may carry bounded SHA-256 `evidence_ids` references to
+those local bundles; the profile does not embed photo bytes or source paths.
+These references identify material but do not by themselves verify viewing.
 
 The shipped table case records the user's correction of leaving the second
 near duplicate unmarked. Portrait and bird teaching cases preserve distinct
@@ -74,7 +77,7 @@ counterexamples. Synthetic declared facts test decision contracts, NOT visual
 perception or real held-out accuracy.
 
 Teaching context is retrieved by tags, includes global rules and is bounded to
-16 rules / 8 examples. Broad matches fail explicitly instead of silently dropping
+16 rules / 8 examples / 32 KiB serialized context. Broad matches fail explicitly instead of silently dropping
 rules. Validation answers are excluded from context. A reviewer with access to
 the entire profile can still read those answers: this is not a secure blinded
 benchmark. Independent real-photo test material and recorded model/prompt
