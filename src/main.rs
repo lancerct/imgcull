@@ -34,6 +34,11 @@ async fn main() -> Result<()> {
             anyhow::ensure!(report.passed, "calibration decisions differ; inspect the JSON discrepancies");
             Ok(())
         }
+        Commands::CalibrationChallenge { profile, split, offset, limit } => {
+            let profile = imgcull::calibration::load(&profile)?;
+            println!("{}", serde_json::to_string(&imgcull::calibration::challenge(&profile, split, offset, limit)?)?);
+            Ok(())
+        }
         Commands::SuggestSimilar { bundles, distance } => {
             println!("{}", serde_json::to_string(&imgcull::similarity::suggest(&bundles, distance)?)?);
             Ok(())

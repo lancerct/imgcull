@@ -346,12 +346,12 @@
       ],
       "origin": "synthetic_counterexample",
       "failure": "grouping",
-      "lesson": "Transfer the table lesson to an equivalent landscape pair, without imposing a low artistic-score requirement.",
+      "lesson": "Either equally good frame may represent this pair. Exactly one retained keeper is sufficient; neither arbitrary first-frame preference nor retaining both is required.",
       "frames": [
         {
           "id": "a",
           "facts": [
-            "Full native subject detail/current appearance checked; equal quality and identical useful content to b."
+            "Full native subject detail/current appearance checked for both. Equal quality and identical useful content; neither has a pre-existing human marking."
           ],
           "previous": null,
           "expected": {
@@ -364,13 +364,29 @@
         {
           "id": "b",
           "facts": [
-            "No meaningful differences; a is directly retained."
+            "No useful difference from a; both are equally suitable representatives."
           ],
           "previous": null,
           "expected": {
             "action": "redundant",
             "keeper": "a",
             "stars": null,
+            "green": false
+          }
+        }
+      ],
+      "alternatives": [
+        {
+          "a": {
+            "action": "redundant",
+            "keeper": "b",
+            "stars": null,
+            "green": false
+          },
+          "b": {
+            "action": "retain",
+            "keeper": null,
+            "stars": 4,
             "green": false
           }
         }

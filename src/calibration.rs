@@ -98,6 +98,10 @@ pub struct Case {
     pub lesson: String,
     /// All frames, including the keeper and meaningful alternatives.
     pub frames: Vec<Frame>,
+    /// Other equally acceptable complete group outcomes. Whole-group variants
+    /// avoid imposing an arbitrary single keeper when several choices are valid.
+    #[serde(default)]
+    pub alternatives: Vec<BTreeMap<String, Expected>>,
 }
 
 /// A small retrievable preference, rather than a growing conversation replay.
@@ -165,6 +169,17 @@ fn validate_expected(e: &Expected, ids: &BTreeSet<&str>) -> Result<()> {
     Ok(())
 }
 
+fn validate_outcome(outcome: &BTreeMap<String, Expected>, ids: &BTreeSet<&str>) -> Result<()> {
+    ensure!(outcome.len() == ids.len() && outcome.keys().all(|id| ids.contains(id.as_str())), "alternative must cover the complete group");
+    for (id, expected) in outcome {
+        validate_expected(expected, ids)?;
+        if let Some(keeper) = &expected.keeper {
+            ensure!(keeper != id && outcome.get(keeper).is_some_and(|e| e.action == "retain"), "case keeper must be directly retained, not a cycle");
+        }
+    }
+    Ok(())
+}
+
 fn validate(profile: &Profile) -> Result<()> {
     ensure!(profile.schema == 1 && text_ok(&profile.change), "invalid calibration schema/change");
     ensure!(profile.parent_id.as_deref().is_none_or(hash_ok), "invalid parent profile ID");
@@ -185,11 +200,11 @@ fn validate(profile: &Profile) -> Result<()> {
             ensure!((1..=16).contains(&frame.facts.len()) && frame.facts.iter().all(|s| text_ok(s)), "invalid case facts");
             validate_expected(&frame.expected, &ids)?;
             if let Some(previous) = &frame.previous { validate_expected(previous, &ids)?; }
-            if let Some(keeper) = &frame.expected.keeper {
-                let other = case.frames.iter().find(|f| &f.id == keeper).context("missing keeper")?;
-                ensure!(keeper != &frame.id && other.expected.action == "retain", "case keeper must be directly retained, not a cycle");
-            }
         }
+        let canonical = case.frames.iter().map(|f| (f.id.clone(), f.expected.clone())).collect();
+        validate_outcome(&canonical, &ids)?;
+        ensure!(case.alternatives.len() <= 4, "too many acceptable group alternatives");
+        for alternative in &case.alternatives { validate_outcome(alternative, &ids)?; }
     }
     Ok(())
 }
@@ -310,17 +325,25 @@ pub fn evaluate(profile: &Profile, predictions: &Predictions, split: Split) -> R
     for case in cases {
         let supplied = predictions.cases.get(&case.id).context("missing evaluation case")?;
         ensure!(supplied.len() == case.frames.len(), "incomplete/extra evaluation frames");
+        ensure!(case.frames.iter().all(|f| supplied.contains_key(&f.id)), "missing evaluation frame");
+        let canonical: BTreeMap<_, _> = case.frames.iter().map(|f| (f.id.clone(), f.expected.clone())).collect();
+        // Choose a COMPLETE acceptable variant, never independent per-frame
+        // allowances that could accidentally approve all-red or all-retained.
+        let expected_group = std::iter::once(&canonical).chain(case.alternatives.iter()).min_by_key(|variant| {
+            variant.iter().filter(|(id, expected)| Expected::from(&supplied[*id]) != **expected).count()
+        }).context("missing expected group")?;
         for frame in &case.frames {
             let proposal = supplied.get(&frame.id).context("missing evaluation frame")?;
             let actual = Expected::from(proposal);
+            let expected = &expected_group[&frame.id];
             let comparison_supported = comparison(proposal).is_none_or(|c| c.supports_redundancy()
                 && text_ok(&c.reason) && c.keeper != frame.id
                 && supplied.get(&c.keeper).is_some_and(|p| matches!(p, Proposal::Retain { .. })));
             result.total += 1;
-            result.false_red += usize::from(is_red(&actual) && !is_red(&frame.expected));
-            result.missed_redundancy += usize::from(frame.expected.action == "redundant" && !is_red(&actual));
-            if actual != frame.expected || !comparison_supported {
-                result.mismatches.push(Mismatch { case_id: case.id.clone(), frame_id: frame.id.clone(), expected: frame.expected.clone(), actual, comparison_supported });
+            result.false_red += usize::from(is_red(&actual) && !is_red(expected));
+            result.missed_redundancy += usize::from(expected.action == "redundant" && !is_red(&actual));
+            if actual != *expected || !comparison_supported {
+                result.mismatches.push(Mismatch { case_id: case.id.clone(), frame_id: frame.id.clone(), expected: expected.clone(), actual, comparison_supported });
             }
         }
     }
@@ -331,4 +354,59 @@ pub fn evaluate(profile: &Profile, predictions: &Predictions, split: Split) -> R
 /// Shared extraction for reports, without treating a comparison as a judgment.
 pub fn comparison(proposal: &Proposal) -> Option<&Comparison> {
     match proposal { Proposal::Redundant { comparison } => Some(comparison), _ => None }
+}
+
+/// Input-only frame for independent evaluation; no old/corrected marking.
+#[derive(Debug, Serialize)]
+pub struct ChallengeFrame {
+    /// Case-local frame ID for the prediction.
+    pub id: String,
+    /// Facts supplied to the reviewer, not an expected decision.
+    pub facts: Vec<String>,
+}
+
+/// Input-only case; correction lessons and root-cause hints are excluded.
+#[derive(Debug, Serialize)]
+pub struct ChallengeCase {
+    /// Stable case ID.
+    pub id: String,
+    /// Scene and purpose context.
+    pub tags: Vec<String>,
+    /// Local material references; not proof of correct image inspection.
+    pub evidence_ids: Vec<String>,
+    /// Frames without expected or previous labels.
+    pub frames: Vec<ChallengeFrame>,
+}
+
+/// A bounded page of validation/teaching questions, without answer fields.
+#[derive(Debug, Serialize)]
+pub struct Challenge {
+    /// Exact immutable profile evaluated.
+    pub profile_id: String,
+    /// Chosen split; evaluation requires predictions for the complete split.
+    pub split: Split,
+    /// Total cases across all pages of this split.
+    pub total: usize,
+    /// Starting case offset.
+    pub offset: usize,
+    /// Input-only material for this page.
+    pub cases: Vec<ChallengeCase>,
+    /// Questions do not authorize markings.
+    pub can_apply: bool,
+}
+
+/// Export questions separately from teaching answers. This limits accidental
+/// label leakage, not a malicious reviewer's access to the full profile.
+pub fn challenge(profile: &Profile, split: Split, offset: usize, limit: usize) -> Result<Challenge> {
+    verify(profile)?;
+    ensure!((1..=16).contains(&limit), "challenge page limit must be 1..=16");
+    let all: Vec<_> = profile.cases.iter().filter(|c| c.split == split).collect();
+    ensure!(!all.is_empty() && offset < all.len(), "empty/out-of-range challenge page");
+    let cases = all.iter().skip(offset).take(limit).map(|c| ChallengeCase {
+        id: c.id.clone(), tags: c.tags.clone(), evidence_ids: c.evidence_ids.clone(),
+        frames: c.frames.iter().map(|f| ChallengeFrame { id: f.id.clone(), facts: f.facts.clone() }).collect(),
+    }).collect();
+    let result = Challenge { profile_id: profile.profile_id.clone(), split, total: all.len(), offset, cases, can_apply: false };
+    ensure!(serde_json::to_vec(&result)?.len() <= MAX_CONTEXT_BYTES, "challenge exceeds byte budget; reduce page size or shorten facts");
+    Ok(result)
 }

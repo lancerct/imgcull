@@ -188,3 +188,39 @@ fn real_case_evidence_references_are_optional_but_cannot_be_arbitrary_paths() {
     fs::write(&draft, serde_json::to_vec(&p).unwrap()).unwrap();
     assert!(calibration::publish(&draft, &root.path().join("invalid-evidence.json")).is_err());
 }
+
+#[test]
+fn evaluation_questions_exclude_answers_previous_labels_and_correction_lessons() {
+    let root = TempDir::new().unwrap();
+    let (_, p) = profile(root.path());
+    let page = calibration::challenge(&p, Split::Validation, 0, 1).unwrap();
+    assert_eq!(page.total, 3);
+    assert_eq!(page.cases.len(), 1);
+    let data = serde_json::to_value(&page).unwrap();
+    assert!(data["cases"][0].get("lesson").is_none());
+    assert!(data["cases"][0].get("failure").is_none());
+    assert!(data["cases"][0].get("alternatives").is_none());
+    assert!(data["cases"][0]["frames"][0].get("expected").is_none());
+    assert!(data["cases"][0]["frames"][0].get("previous").is_none());
+    let next = calibration::challenge(&p, Split::Validation, 1, 1).unwrap();
+    assert_ne!(next.cases[0].id, page.cases[0].id);
+    assert!(calibration::challenge(&p, Split::Validation, 3, 1).is_err());
+    assert!(calibration::challenge(&p, Split::Validation, 0, 17).is_err());
+    assert!(!page.can_apply);
+}
+
+#[test]
+fn equally_good_keepers_allow_complete_alternatives_but_not_all_keep_or_all_red() {
+    let root = TempDir::new().unwrap();
+    let (_, p) = profile(root.path());
+    let mut run = predictions(&p, Split::Validation);
+    let case = p.cases.iter().find(|c| c.id == "equivalent-landscape").unwrap();
+    let alternative = &case.alternatives[0];
+    run.cases.insert(case.id.clone(), alternative.iter().map(|(id,e)| (id.clone(),proposal(e))).collect());
+    assert!(calibration::evaluate(&p, &run, Split::Validation).unwrap().passed);
+    run.cases.get_mut(&case.id).unwrap().insert("a".into(), Proposal::Retain { stars: Some(4), green: false });
+    assert!(!calibration::evaluate(&p, &run, Split::Validation).unwrap().passed);
+    run.cases.get_mut(&case.id).unwrap().insert("a".into(), Proposal::Red { replacement: None });
+    run.cases.get_mut(&case.id).unwrap().insert("b".into(), Proposal::Red { replacement: None });
+    assert!(!calibration::evaluate(&p, &run, Split::Validation).unwrap().passed);
+}

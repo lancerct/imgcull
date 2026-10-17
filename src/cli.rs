@@ -34,6 +34,16 @@ pub enum Commands {
         #[arg(long, value_enum, default_value = "validation")]
         split: crate::calibration::Split,
     },
+    /// Export bounded evaluation questions without old labels or answer fields.
+    CalibrationChallenge {
+        profile: PathBuf,
+        #[arg(long, value_enum, default_value = "validation")]
+        split: crate::calibration::Split,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+    },
     /// Propose pairs for review; never discard or choose a keeper by hash.
     SuggestSimilar {
         #[arg(required = true, num_args = 2..)]

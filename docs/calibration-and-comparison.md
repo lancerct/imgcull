@@ -57,6 +57,12 @@ an authenticated history or a check that an unavailable ancestor still exists.
 Profiles use free scene/purpose tags, allowing overlapping contexts such as
 portrait + motion + low_light or exhibit + inscription + reflective_glass.
 There is no fixed list of genres that would need a code change for every scene.
+Cases can specify up to four additional acceptable COMPLETE group outcomes.
+For two truly equal unmarked frames, either may be the keeper; evaluation must
+not teach an arbitrary first-frame preference. Alternatives cover the entire
+group and require direct retained keepers, so per-frame flexibility cannot
+accidentally approve all-red or all-retained outcomes. Reports choose the nearest
+acceptable whole-group outcome for discrepancy accounting.
 
 A case contains concrete observations/assumptions, a prior marking where known,
 the corrected expected markings, the reason and scope, and a root cause:
@@ -97,6 +103,9 @@ No version is automatically activated merely because it was published.
 3. Retrieve only relevant teaching cases for the reviewer, not the whole chat.
 4. Generate predictions independently for a complete validation split; include
    exact profile ID and a model/prompt revision identifier.
+   `calibration-challenge` exports bounded pages of input-only cases: no expected
+   decisions, previous labels, correction lessons or root-cause hints. Retrieve
+   relevant teaching context separately, and combine predictions across pages.
 5. Evaluate exact marking/keeper/stars/green differences; false red and missed
    redundancy are reported separately. Missing/extra cases/frames and stale
    profile IDs fail. A failed evaluation exits nonzero after emitting JSON.
@@ -113,6 +122,7 @@ the real image/provider workflow remains a separate necessary integration.
 ```text
 imgcull calibration-publish examples/calibration-draft.json --output profile-v1.json
 imgcull calibration-context profile-v1.json --tags food near_duplicate
+imgcull calibration-challenge profile-v1.json --split validation --offset 0 --limit 5
 imgcull review-init PHOTO_OR_DIRECTORY --output NEW_JOB --calibration profile-v1.json
 imgcull review-context NEW_JOB --tags bird burst
 imgcull suggest-similar EVIDENCE_A EVIDENCE_B --distance 6
