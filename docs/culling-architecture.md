@@ -1,5 +1,8 @@
 # Personal culling architecture and iteration contract
 
+> 当前用户标准：2026-10-25 已采用 [打标标准 v1.0](culling-standard-v1.0.md)，仅使用 1／3／4／5 星和暂不评级。本文原有红绿标签、艺术分数阈值与 policy v2 描述仅说明旧实现，不再作为新的摄影判断标准。现有代码尚未完成星标 v1.0 的实现适配；不得据此自动迁移或写回。原尺寸证据、LR 当前效果、任务完整性与元数据保护约束继续有效。
+
+
 The product is one Rust engine with a thin future skill. The skill coordinates typed commands and explains uncertain decisions; it must not implement its own file pairing, decoding, XML editing, retry loops, or second review database.
 
 ## End-to-end flow and ownership

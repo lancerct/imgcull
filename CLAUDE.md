@@ -1,5 +1,10 @@
 # Contributor instructions
 
+## Current photographic standard
+
+The user-approved selection standard is docs/culling-standard-v1.0.md (2026-10-25): 1 star = deletion recommendation, 3 = retain, 4/5 = post-processing priorities; no new color labels or art-score thresholds. This supersedes the old photographic rules in policy v2 and historical example profiles, but does not bypass native evidence, current-LR appearance, source safety or apply gates. The existing runtime has NOT yet been adapted to the new standard; do not silently map old ratings/colors or treat documentation adoption as implemented enforcement. Calibration experiments are local, read-only, and must distinguish definitive judgments from provisional camera-JPEG checks.
+
+
 This is one Rust engine. The future skill is a thin coordinator of typed commands.
 The architecture source of truth is [docs/culling-architecture.md](docs/culling-architecture.md).
 Read it when changing the personal culling workflow; do not copy module ownership or workflow rules into new scripts.
