@@ -14,6 +14,9 @@
 
 ### Personal culling development in this fork
 
+The user-facing photographic policy is now [Culling standard v1.0](docs/culling-standard-v1.0.md), adopted 2026-10-25: 1 star for deletion advice, 3 for retention, 4/5 for post-processing priorities, with ungraded uncertainty. It supersedes older color-label/art-score criteria. Runtime policy v2 has not yet been adapted; do not auto-migrate existing marks or apply experiment predictions.
+
+
 The implemented foundations from PRs #3–#7 are merged into `main`. See [current status and archived experiments](docs/project-status.md). The complete automatic personal workflow remains under development.
 
 Versioned personal corrections and comparison tools are documented in [calibration and comparison](docs/calibration-and-comparison.md): good near duplicates can receive separate redundancy advice, preferences/counterexamples are immutable and frozen per job, similarity only proposes pairs, and draft reports show the explicit keeper relation. These tools do not yet run automatic calibrated visual review or authorize markings. The example corpus tests decision contracts, not real-photo model accuracy.
